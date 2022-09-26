@@ -1,0 +1,1525 @@
+---
+title: "Implémentation avec `R`"
+author: "Thibault Laurent"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+bibliography: bibliography.bib
+output :
+  rmdformats::html_clean:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+    template: flatly
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    keep_tex: yes
+---
+<link href="markdown7.css" rel="stylesheet">
+
+`R` [@R_2022] est un système qui est communément appelé langage et logiciel. Il permet, entre autres, de réaliser des analyses statistiques. Plus particulièrement, il comporte des moyens qui rendent possibles la manipulation des données, les calculs et les représentations graphiques. Dans ce chapitre, après un bref rappel des fonctionnalités de base de `R`, nous allons présenter les principales méthodes statistiques pour données de composition, implémentées sous formes de fonctions accessibles à travers des librairies diffusées via le CRAN (The Comprehensive R Archive Network) ou Github.  
+
+
+# Début avec `R` 
+
+Dans un tableau de recueil de données de taille $n \times p$, les $n$ unités statistiques sont en général disposées en lignes et les $p$ variables en colonnes. Dans `R`, un tel tableau est stocké sous forme d'un objet communément appelé `data.frame`. Ce dernier peut aussi être vu comme une `list` avec $p$ éléments, où chaque élément est un vecteur de taille $n$, composé de valeurs de type `numeric`, `character`, `logical`, etc. Ainsi, un `data.frame` se distingue d'un objet de type `matrix` car dans cette classe d'objet, tous les éléments sont nécessairement du même type (`numeric` par exemple).
+
+De nombreuses librairies permettent d'importer des fichiers de données sous `R`. L'utilisation de l'une plutôt que l'autre vient du type de fichiers à importer. Par exemple, les fichiers texte qui portent une extension `.txt` ou `.csv` s'importent très facilement avec la fonction de base `read.table()`. En revanche, les fichiers qui portent l'extension `.xls` ou `.xlsx` requièrent l'utilisation d'une librairie externe, par exemple la librairie `readxl` disponible sur le CRAN, via la fonction `install.packages()`. Dans ce chapitre, nous allons utiliser un certain nombre de librairies que nous décrirons au fur et à mesure, mais que nous allons installer en une seule fois :
+
+```{r, install packages, eval = F}
+install.packages(c(
+  "compositions", # librairie dédiée à l'analyse de données de compositions
+  "missForest", # traiter les données manquantes non compo
+  "energy",   # tester une loi normale multivariée
+  "readxl",   # importer des fichiers excel
+  "sf", # données spatiales
+  "tidyverse", # univers tidyverse 
+  "xtable"     # exporter sous forme de table latex
+ ))
+devtools::install_github("tibo31/codareg")
+```
+
+Cette étape permet de télécharger et d'installer localement les bibliothèques de codes. Toutefois, pour pouvoir utiliser les fonctions incluses dans celles-ci, il faut les charger dans la session en cours par l'intermédiaire de la fonction `library()` :
+
+```{r, charger une librairie}
+library("readxl")
+```
+
+Pour importer le fichier qui contient les résultats du 1er tour de l'élection présidentielle française de 2022, on va d'abord télécharger le fichier localement depuis le site du ministère, à l'aide de la fonction `download.file()`. 
+ 
+```{r, importer data localement, eval = F}
+my_url <- "https://www.data.gouv.fr/fr/datasets/r/48a38a25-9e46-4d83-80db-947258df9409"
+download.file(my_url, destfile = paste0(getwd(), "/res_2022.xlsx"))
+```
+
+Ensuite, on importe le fichier sous `R` à l'aide de la fonction `read_excel()`.
+```{r, lire data}
+res_2022 <- read_excel("res_2022.xlsx")
+class(res_2022)
+```
+
+L'objet importé est de type `tibble`, qui appartient à l'univers `tidyverse` dont les principales bibliothèques (`ggplot2`, `dplyr`, `purr`, etc.) ont pour but de simplifier la syntaxe et les temps de calcul de fonctions de bases de `R`. Cependant, un objet `tibble` a hérité de tous les spécificités de la classe `data.frame`, y compris les fonctions de base qui s'appliquent sur ce type d'objet. Parmi ces fonctions qui permettent de décrire l'objet, la fonction `str()` donne des informations concernant la dimension du tableau de données, le nom, le type et l'affichage des premières valeurs observées pour chaque variable. 
+
+```{r, afficher structure data}
+str(res_2022)
+```
+
+On observe que le jeu de données contient 107 observations : 96 départements de métropole, 10 départements d'Outre-Mer et enfin, une observation comprend les français résidant à l'étranger. Les variables contiennent le nombre d'inscrits (personnes ayant le droit de vote) qui est égale au nombre d'abstentions (personnes n'ayant pas voté) plus le nombre de votants (personne ayant voté). Le nombre de votants est égale à la somme du nombre de votes nuls ou blancs, plus le nombre d'exprimés (personnes ayant voté pour un des candidats). Enfin pour chacun des 12 candidats (Macron, Le Pen, Mélenchon, Zemmour, Pécresse, Jadot, Lassalle, Roussel, Dupont-Aignan, Hidalgo, Poutou, Arthaud), on observe d'une part le nombre de voix obtenu et d'autre part le rapport "nombre de voix" sur "nombre d'exprimés".
+
+Ainsi, une première façon de construire des données de composition est de considérer le rapport "nombre de voix" sur "nombre d'exprimés" des 12 candidats, en ne tenant pas compte des votes nuls, blancs ni de l'abstention. C'est de cette façon que les votes sont comptabilisés. Pour construire cet objet, il suffit d'extraire les colonnes correspondantes dans `res_2022` de la façon suivante :
+
+```{r, extraire colonnes data}
+vote_share_1 <- res_2022[ , c("Macron_EXP", "Le Pen_EXP", "Mélenchon_EXP",
+ "Zemmour_EXP", "Pécresse_EXP", "Jadot_EXP", "Lassalle_EXP", "Roussel_EXP",
+ "Dupont-Aignan_EXP", "Hidalgo_EXP", "Poutou_EXP", "Arthaud_EXP")]
+```
+
+On simplifie le nom des variables :
+```{r, changer nom data}
+colnames(vote_share_1) <- c("Macron", "Le_Pen", "Mélenchon", "Zemmour", 
+  "Pécresse", "Jadot", "Lassalle", "Roussel", "Dupont_Aignan", "Hidalgo",
+  "Poutou", "Arthaud")
+```
+
+
+
+Une deuxième façon de construire les données de composition est d'inclure une 13ème variable correspondant à la somme des votes blanc, des votes nuls et l'abstention et de considérer à présent le rapport "nombre de voix" sur "nombre d'inscrits" (au lieu de "nombre de voix" sur "nombre d'exprimés"). Pour faire cela, on crée dans un premier temps cette nouvelle variable `non_exprimes`:
+
+```{r, crer variable exprimes}
+res_2022$non_exprimes <- res_2022$Abstentions + res_2022$Blancs +
+  res_2022$Nuls
+```
+
+On sélectionne les variables de comptage:
+```{r, extraire data comptage}
+vote_share_2 <- res_2022[ , c("Macron_VOIX", "Le Pen_VOIX", 
+  "Mélenchon_VOIX", "Zemmour_VOIX", "Pécresse_VOIX", "Jadot_VOIX",
+  "Lassalle_VOIX", "Roussel_VOIX", "Dupont-Aignan_VOIX", "Hidalgo_VOIX",
+  "Poutou_VOIX", "Arthaud_VOIX", "non_exprimes")]
+```
+
+On divise par le nombre d'inscrits en utilisant la fonction `sapply()`:
+```{r, creer nouvelle variable}
+vote_share_2 <- sapply(vote_share_2, function(x) x / res_2022$Inscrits)
+```
+
+On simplifie le nom des variables :
+```{r, recoder nom data}
+colnames(vote_share_2) <- c("Macron", "Le_Pen", "Mélenchon", "Zemmour",
+  "Pécresse", "Jadot",  "Lassalle", "Roussel", "Dupont_Aignan", "Hidalgo",
+  "Poutou", "Arthaud", "non_inscrits")
+```
+
+
+# Analyse exploratoire (avec une approche non compositionnelle) #
+
+Dans cette section, nous proposons d'utiliser dans un premier les fonctions de base de `R` pour décrire nos données. Dans la section suivante, nous utiliserons des outils spécifiques aux données de composition. 
+
+## Espace des individus
+
+Dans un premier temps, on va essayer de représenter la répartition des votes département par département. Une première façon de faire est de faire soit un diagramme en barre, soit un graphique des parts Pour cela, on va utiliser le package `ggplot2` qui appartient au consortium `tidyverse`. Il faut dans un premier temps rendre les données `tidy`, dans le sens où le jeu de données doit avoir les colonnes suivantes : une colonne pour le nom des départements, une colonne pour le nom des candidats et enfin une colonne pour le score obtenu par le couple département/candidat. On réalise cette opération à l'aide de la fonction `pivot_longer()` (car on transforme les données dans le format long) :  
+
+```{r, transformer data format long, message = F}
+library("tidyverse")
+vote_share_long <- pivot_longer(data.frame(vote_share_1, 
+                                           dep = res_2022$DEP_NOM), 
+              cols = 1:12, names_to = "candidat", values_to = "share")
+```
+
+Ensuite, on représente les barres en utilisant l'univers `ggplot2`. Par défaut, les observations sont ordonnées dans l'ordre alphabétique. Il peut être intéressant d'ordonner les départements selon un critère géographique en regroupant par exemple les départements par région, on bien selon un critère statistique en ordonnant les départements selon le score obtenu par un des candidats. 
+
+Ici, on ordonne d'abord les départements en fonction du score obtenu par le candidat Zemmour et on représente ensuite le diagramme en barre.
+
+```{r, barplot des shares, fig.width = 12, fig.height = 6, fig.cap = "Diagramme en barre des votes (nombre de voix divisé par nombre d'exprimes) par département", fig.align="center"}
+vote_share_long %>%
+  mutate(dep = factor(dep, levels = 
+              levels((vote_share_long %>%
+                filter(candidat == "Zemmour") %>%
+                mutate(dep = fct_reorder(dep, share)))$dep))) %>%
+  ggplot() +
+  geom_col(aes(x = dep, fill = candidat, y = share)) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+**Remarque :** la palette de couleurs utilisée dans `ggplot2` attribue des couleurs avec une intensité/saturation plus ou moins égale pour chaque couleur. Seule la teinte varie, le but étant que la perception du lecteur ne soit pas influencée par une couleur plus qu'une autre.
+
+
+On va récupérer les données géographiques associées aux départements, ce qui nous permettra d'une part de faire des cartes un peu plus tard, mais de classer aussi les départements en fonction de leur région d'appartenance, puisque cette information n'était pas disponible avec les données du Ministère.
+
+On ne va expliciter ici le code utilisé, ce dernier est téléchargeable sur la page github suivante :
+
+```{r, package spatial, message = F}
+library("sf")
+source("spatial/spatial_circon.R")
+```
+
+Ce code nous permet de construire l'objet `geo_dep` de classe `sf` [@sf] qui permet de faire de l'analyse de données spatiales. On va dans un premier temps faire la jointure de cet objet avec les données d'élection :
+
+```{r, merge data spatial}
+geo_dep <- merge(geo_dep[, c("nom_dpt", "code_dpt", "nom_reg")], 
+     data.frame(vote_share_1, dep = res_2022$DEP_CODE, 
+                Inscrits = res_2022$Inscrits), 
+     by.x = "code_dpt", by.y = "dep")
+```
+
+
+```{r, transformer data long, fig.width = 15, fig.height = 6, fig.cap = "Diagrammes en barre des votes par département, groupés par région", fig.align="center"}
+vote_share_long <- pivot_longer(geo_dep, cols = 4:15, names_to = "candidat", 
+                                values_to = "share")
+vote_share_long %>%
+  mutate(nom_reg = gsub("-", "-\n", nom_reg)) %>%
+  ggplot() +
+  geom_col(aes(x = nom_dpt, fill = candidat, y = share)) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(. ~ nom_reg, scales = "free_x", space = "free") 
+```
+
+On remarque qu'il existe des similitudes entre les départements d'une même région (Occitanie, Nouvelle-Aquitaine). De même, on constate des différences entre régions (l'Ile de France est très différente du Grand-Est par exemple). Toutefois ce n'est pas facile de comparer les barres entre elles car il y a trop de composantes et trop d'observations... 
+
+Pour illustrer le diagramme des parts, on a récupéré les résultats du 1er tour de l'élection présidentielle depuis l'adoption de la 5ème république. Les partis ont été agrégés en 4 groupe : droite, gauche, centre et extrême-droite.
+
+```{r, historique election presidentielles}
+time_chart <- data.frame(
+  year = rep(as.Date(c("1958-01-01", "1965-01-01", "1969-01-01", "1974-01-01", 
+      "1981-01-01", "1988-01-01", "1995-01-01", "2002-01-01", "2007-01-01", 
+      "2012-01-01", "2017-01-01", "2022-01-01")), each = 4),
+  vote = c(78.51, 21.49, 0, 0, 44.65, 31.72, 17.28, 6.35, 44.47, 32.22, 
+           23.31, 0, 35.77, 47.96, 15.11, 1.16, 20.99, 50.70, 28.31, 0, 
+           19.95, 49.11, 16.55, 14.39, 20.84, 40.84, 18.58, 19.74, 19.88, 
+           42.87, 12.63, 24.62, 31.18, 36.10, 18.57, 14.15, 27.18, 44.00, 
+           9.13, 19.69, 20.01, 27.85, 25.22, 26.92, 4.78, 31.92, 30.98, 32.32),
+  parti = rep(c("droite", "gauche", "centre", "extrême"), 12)
+)
+```
+
+Le graphique s'obtient à l'aide du package `gpplot2`.`
+```{r, evolution des parts, fig.width = 10, fig.height = 5, fig.cap = "Evolution des parts des principaux partis entre 1958 et 2022", fig.align="center"}
+ggplot(time_chart) + 
+  aes(x = year, y = vote, fill = parti) +
+  geom_area(color = "black") +
+  labs(title = "Votes au 1er tour de l'élection présidentielle",
+       subtitle = "1958 à 2022",
+       x = "Year",
+       y = "percentage",
+       fill = "Partis") +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal()
+```
+
+Ce graphique nous permet d'observer la perte de vitesse des partis de gauche et de droite alors que le centre et l'extrême-droite ont gagné du terrain.
+
+Enfin, on va terminer cette section en réalisant la carte des vainqueurs par département. Pour faire cela, on détermine le candidat qui a obtenu le plus grand nombre de voix par département.
+
+```{r, cartographie, fig.width = 7, fig.height = 5, fig.cap = "Cartographie des candidats qui ont remporté le plus de voix par département", fig.align="center"}
+geo_dep$vainqueur <- names(vote_share_1)[
+  apply(st_drop_geometry(geo_dep[, names(vote_share_1)]), 1, which.max)]
+plot(geo_dep[, "vainqueur"], main = "", key.pos = 1, 
+     key.width = lcm(1.3), key.length = .7)
+```
+
+On voit se dessiner un effet géographique extrêmement important dans la préférence des français pour un candidat plutôt qu'un autre.
+
+
+## Espace des variables
+
+On peut considérer chaque composante comme étant une variable quantitative et utiliser les outils usuels de la statistique exploratoire, comme calculer les indicateurs du minimum, maximum, moyenne, médiane, quartiles, etc. Ces indicateurs s'obtiennent simultanément  à l'aide de la fonction `summary()` :   
+
+```{r, option xtable, echo = F}
+options(xtable.comment = FALSE)
+```
+
+```{r, convertir dans une table latex, results='asis'}
+xtable::xtable(t(sapply(vote_share_1, function(x) 
+  c(min = min(x), q = quantile(x, 0.25), median = median(x), mean = mean(x),
+    q = quantile(x, 0.75), max= max(x)))), 
+  caption = "Statistique descriptive des parts de vote")
+```
+
+Afin de comparer les variables entre elles, on peut également représenter une boîte à moustache par variable. A l'aide du code suivant, on affiche également le nombre de points aberrants au sens usuel de la statistique univariée (il s'agit des points au-dessus resp. au-dessous de la moustache supérieure resp. inférieure). 
+
+
+```{r, boxplot de chaque part, fig.width = 12, fig.height = 4, message = F, fig.cap = "Boîte à moustache des parts prises une à une", fig.align="center"}
+par(mfrow = c(1, 12), las = 1, mar = c(0, 2, 0, 2))
+res <- sapply(vote_share_1, function(x) {
+  res <- boxplot(x, ylim = c(0, 70))
+  length(res$out)
+  })
+```
+```{r, results='asis'}
+print(xtable::xtable(t(as.table(res)),  
+  caption = "Nombre de valeurs extrêmes, détecté sur chaque boîte à moustache"),
+  size = "tiny")
+```
+
+On peut finalement représenter carte par carte, le score réalisé par chaque parti. Ici on utilise la librairie `mapsf` [@mapsf] pour faire une cartographie des scores réalisés par les trois premiers candidats. On utilise une palette de couleur différente selon le candidat; en revanche, on garde le même intervalle de discrétisation pour chaque carte, afin que la luminosité soit la même d'une carte à une autre.
+
+```{r, cartographie des 3 candidats, fig.width = 12, fig.height = 5, fig.cap = "Cartographie des parts obtenus par les trois premiers candidats", fig.align="center"}
+library("mapsf")
+par(mfrow = c(1, 3), oma = c(0, 0, 0, 0), mar = c(0, 0, 0, 0))
+candidat <- c("Macron", "Le_Pen", "Mélenchon")
+ma_palette <- c("OrYel", "Dark Mint", "Reds")
+for (i in 1:3) {
+  mf_map(x = geo_dep, var = candidat[i], type = "choro",
+       pal = ma_palette[i], 
+       breaks = c(5, 15, 20, 22.5, 25, 27.5, 30, 45, 60),
+       leg_title = candidat[i], 
+       leg_val_rnd = 2)
+}
+```
+
+Dans cette section, on a vu que l'analyse univariée pouvait très bien s'appliquer sur chaque composante des données de composition. En revanche, utiliser les outils usuels de la statistique multivariée introduit nécessairement un malaise dû à la nature des données de composition. A titre d'exemple, nous avons représenté les nuages de point entre le score obtenu par Macron et celui obtenu par Le Pen, en considérant trois mesures différentes :  candidats dans les deux jeux de données (celui avec uniquement le score des candidates et celui avec le score des candidats ainsi que le nombre d'abstentions). 
+
+```{r, spurious scatter plot, fig.width = 12, fig.height = 4, fig.cap = "Nuage de points des voix obtenus par Macron et Le Pen en valeurs absolue (sur la gauche), en part d'exprimés (au centre) et en part d'inscrits (sur la droite)", fig.align="center"}
+par(mfrow = c(1, 3), oma = c(0, 0, 0, 0), mar = c(4, 4, 1, 1))
+plot(Macron_VOIX ~ `Le Pen_VOIX`, data = res_2022, 
+     main = "Nombre de voix")
+plot(Macron_EXP ~ `Le Pen_EXP`, data = res_2022, 
+     main = "Nombre de voix / nombre exprimes")
+plot(Macron ~ Le_Pen, data = vote_share_2, 
+     main = "Nombre de voix / nombre inscrits")
+```
+
+On arrive à des observations très différentes : dans le premier graphique, on observe un effet positif dû à l'effet "nombre" (plus des départements sont peuplés, plus les scores des deux candidats seront élevés), alors que dans les deuxième et troisième graphique, l'effet est négatif dans les deux cas; cependant, il est difficile d'interpréter cette corrélation négative car les scores des deux candidats sont intrinsèquement liés dû à la nature même des données (une variable pouvant être exprimée en fonction de l'autre à cause de la clôture); enfin, dans le troisième graphique, il semble y avoir deux groupes (le plus petit étant possiblement un groupe d'outliers) semblent identifiés. Nous avons un exmple de "spurious correlation" et de biais négatif, propre aux données de composition, qui est une des raisons ayant motivé l'introduction de la géométrie d'Aitchison, pour rendre les interprétations "cohérentes" entre les différentes sous-compositions.
+
+# Les données de composition sous `R` # 
+
+En 2022, environ 18000 librairies étaient disponibles via le CRAN.  Parmi ce nombre volumineux et toujours croissant de librairies, une vingtaine seulement contient les mots clés `compositional data`. Deux bibliothèques en particulier contiennent l'essentielle des méthodes statistiques appliquées aux données de composition. Il s'agit de  :
+
+* `compositions`  [@compositions_2022]
+* `robCompositions`  [@robCompositions]
+
+Nous allons essentiellement utiliser la première librairie, dont le principal atout est la création de la classe d'objet `acomp`, sur laquelle on pourra appliquer les opérations géométriques dans l'espace du simplexe. Nous utiliserons la seconde bibliothèque  pour appliquer des méthodes multidimensionnelles robustes (c'est-à-dire peu sensibles aux valeurs extrêmes ou aberrantes) appliquées aux données de composition. Enfin, nous ferons appel à la librairie `ggtern` [@ggtern] pour se rapprocher de la philosophie `ggplot2` afin de représenter les diagrammes ternaires. 
+
+## Le diagramme ternaire
+
+La fonction `ggtern()` du même package `ggtern` [@ggtern] permet de représenter un diagramme ternaire en quelques lignes de codes. Pour cela, il suffit de spécifier le nom des trois composantes à représenter dans la fonction `aes()`. On réfère le lecteur au chapitre 2 pour une bonne compréhension du diagramme ternaire. Dans l'exemple suivant, on a représenté le score des trois principaux candidats. On remarque que la fonction se charge de faire la clôture  des trois sous-composantes qu'on lui a fourni. Il est possible de représenter sur le diagramme ternaire des informations supplémentaires, en utilisant par exemple des couleurs pour spécifier les niveaux d'une variable qualitative (argument `colour`) ou en utilisant des points de tailles proportionnelles à une variable quantitative (argument `size`). Pour illustrer cette fonction, nous avons représenté successivement les données brutes, avec une couleur différente selon le gagnant du département et enfin, des tailles de points proportionnelles au nombre d'inscrits.
+
+```{r, ternary diagram, fig.width = 12, fig.height = 6, message = F, fig.cap = "Diagramme ternaire des trois candidats arrivés en tête du 1er tour, avec ajout des couleurs sur les axes dans la figure de droite, afin de simplifier la lecture des échelles", fig.align="center"}
+library("ggtern")
+p1 <- ggtern(data = vote_share_1, mapping = aes(x = Macron, 
+                      y = Le_Pen, z = Mélenchon)) +
+ geom_point(size = 1.5) 
+p2 <- p1 +  theme_rgbw()
+grid.arrange(p1, p2, ncol = 2)
+```
+
+```{r, ternary diagram avec info aux, fig.width = 12, fig.height = 6, message = F, fig.cap = "Ajout d'une information supplémentaire qualitative (à gauche) et quantitative (à droite)", fig.align="center"}
+p3 <- ggtern(data = geo_dep, mapping = aes(x = Macron, y = Le_Pen, z = Mélenchon)) +
+ geom_point(aes(colour = vainqueur), size = 1.5)  
+p4 <- ggtern(data = res_2022, mapping = aes(x = Macron_VOIX, y = `Le Pen_VOIX`, 
+                                           z = Mélenchon_VOIX)) +
+ geom_point(aes(size = Inscrits))  
+grid.arrange(p3, p4, ncol = 2)
+```
+
+Enfin, nous pouvons représenter plusieurs diagrammes ternaires en fonction de la région :
+
+```{r, ternary conditionnel, fig.width = 12, fig.height = 12, message = F, fig.cap = "Diagrammes ternaires conditionnelles à la région", fig.align="center"}
+ggtern(data = geo_dep, mapping = aes(x = Macron, y = Le_Pen, z = Mélenchon)) +
+ geom_point(mapping = aes(size = Inscrits, colour = vainqueur))  +
+  facet_wrap(~ nom_reg)
+```
+
+On citera comme alternative à la librairie `ggtern` et à la philosophie `ggplot2`, la jeune librairie `Ternary` [@ggtern] qui produit des diagrammes  ternaires intéressants. Enfin, on verra que le package `compositions` permet aussi de réaliser des diagrammes  ternaires et notamment des matrices de diagrammes ternaires. 
+
+## Le package `compositions` et la classe `acomp`
+
+La fonction `acomp` définit une classe d'objet `acomp` en faisant la clôture  du jeu de données qu'on lui fournit en entrée. Autrement dit, qu'on applique la fonction sur le nombre de voix des candidats ou bien, le rapport "nombre de voix" / "nombre d'exprimées", le résultat sera le même. Ici, on applique d'abord la fonction `acomp()` sur le nombre de voix obtenus par les 3 candidats :   
+
+```{r, charger compositions, message = F}
+library("compositions")
+comp_a <- acomp(res_2022[, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")])
+names(comp_a) <- c("Macron", "Le Pen", "Mélenchon")
+```
+
+Ensuite, on applique la fonction `acomp()` sur le rapport "nombre de voix" sur "nombre d'exprimes" :
+
+```{r, creer acomp}
+comp_b <- acomp(res_2022[, c("Macron_EXP", "Le Pen_EXP", "Mélenchon_EXP")])
+names(comp_b) <- c("Macron", "Le Pen", "Mélenchon")
+```
+
+On affiche ensuite les résultats obtenus pour le 1er département et on constate que les résultats sont quasi-identiques (les différences observées étant dues probablement aux arrondies décimales diffusées dans la variable "nombre de voix" sur "nombre d'exprimes") :
+
+```{r, afficher acomp}
+comp_a[1, ]
+comp_b[1, ]
+```
+
+
+**Remarque :** dans le package `compositions`, il existe une fonction `clo()` qui permet de faire la clotûre sur un vecteur, sans créer d'objet `acomp`. Par exemple : 
+
+```{r,  cloture}
+clo(c(1, 2, 3))
+```
+
+Lorsqu'on extrait un sous-ensemble de colonnes, le résultat est une sous-composition sur laquelle la clotûre est faite automatiquement : 
+
+```{r, afficher premieres lignes}
+head(comp_a[, c("Macron", "Le Pen")])
+```
+
+Par ailleurs, on convertit un objet `acomp` en `matrix` de la façon suivante :
+
+```{r, cenvertir acomp en matrix}
+head(as(comp_a[, c("Macron", "Le Pen")], "matrix"))
+```
+
+Lorsqu'on applique la fonction `acomp()` sur une composition avec des zéros, cela créé un BDL ("below detection limit") à l'emplacement des zéros :
+
+```{r, creer donnees chimie}
+chimie <- data.frame(Cr = c(27.50, 30.40, 25.60), 
+                     B = c(17, 23, 14), 
+                     P = c(148, 433, 135),
+                     V = c(29, 42, 33),
+                     Cu = c(2.7, 3.8, 0),
+                     Ti = c(4335, 3305, 3925),
+                     Ni = c(0, 16.6, 14.2))
+chimie_acomp <- acomp(chimie)
+chimie_acomp
+```
+
+Nous verrons plus tard comment traiter spécifiquement ces zéros, mais à ce stade, il est déjà possible de les remplacer par la valeur $a \times l_d$, où $a$ est généralement pris égal à 2/3 et $l_d$ est la valeur de détection limite de la composante $d$. 
+
+```{r, traiter les zeros}
+chimie_acomp_2 <- zeroreplace(chimie_acomp, d = rep(0.001, 7), a = 2/3)
+```
+
+Si on souhaite sélectionner des composantes sans faire la clotûre, on peut utiliser la fonction `aplus()` :
+
+```{r, extraire colonnes sans cloture}
+aplus(chimie_acomp_2, c("Ti", "Ni"))
+```
+
+Enfin, si on souhaite faire l'amalgamation de ces deux composantes en une seule an prenant la somme arithmétique, on peut utiliser la fonction `totals()` :
+
+```{r, amalagamer colonnes}
+totals(aplus(chimie_acomp_2, c("Ti", "Ni")))
+```
+
+Pour créer un nouveau jeu de données qui tient en compte cette amalgamation, il faut recréer un objet `acomp` de la façon suivante :
+
+```{r, ajouter une composante}
+acomp(
+  cbind(aplus(chimie_acomp_2, c("Cr", "B", "P", "V", "Cu")),
+      Ni_Ti = totals(aplus(chimie_acomp_2, c("Ti", "Ni"))))
+)
+```
+
+Une autre façon de faire l'amalgamation est de sélectionner un certain nombre de composantes et faire la moyenne géométrique de toutes les autres. Cela se fait au moyen de la fonction `acompmargin()` :
+
+```{r}
+acompmargin(chimie_acomp_2, c("Cr", "B", "P", "V", "Cu"))
+```
+
+
+### Perturbation, puissance 
+
+On remarque que les vecteurs affichés ont un attribut appelé `acomp`. Cela implique qu'il ne s'agit  pas d'un vecteur "classique", mais un vecteur compositionnel. La conséquence est que les opérations de type `+`, `^`  appliqués sur cet objet ne seront pas celles de la géométrie euclidienne, mais celles de la géométrie d'Aitchison. Par exemple, l'opérateur `+` entre deux vecteurs de composition va appliquer l'opération de perturbation.  Ainsi, si on perturbe les deux premiers vecteurs de composition :
+
+```{r, operateur perturbation}
+comp_a[1, ] + comp_a[2, ]
+```
+
+Cela est équivalent à faire le produit entre les composantes de départ et de faire ensuite la clotûre :
+
+```{r, perturber en dehors de acomp}
+produit <- res_2022[1, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")] * 
+  res_2022[2, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")]
+produit / sum(produit)
+```
+
+De même l'opérateur `*` correspond à l'opérateur puissance. Par exemple, on applique à la première observation la puissance 2 :
+
+```{r, operateur puissance}
+comp_a[1, ] * 2
+```
+
+ce qui est équivalent à faire :
+
+```{r, puissance en dehors de acomp}
+power <- res_2022[1, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")] ^ 2 
+power / sum(power)
+```
+
+Nous allons montrer ci-après un exemple d'utilisation de l'opérateur de perturbation. On considère la teneur en protéines, glucides, lipides de différents types de farine (source : Ciqual).
+
+```{r, creer data farine}
+farine <- data.frame(type = c("T110", "T150", "T45", "T55", "T65", "T80", 
+    "mais", "pois chiche", "riz", "sarrasin", "seigle"),
+    proteines = c(10.3, 12.2, 9.94, 9.9, 14.9, 10.9, 6.23, 22.4, 8, 11.5, 8.7),
+    glucides = c(70.2, 66.67, 76.31, 75.2, 69.1, 74.97, 78.74, 
+                 57.90, 74.8, 68.43, 71.63),
+    lipides = c(1.5, 1.52, 0.82, 1, 1, 1.18, 2.1, 6.69, 2.5, 2.19, 1.37))
+```
+
+On représente le diagramme ternaire et on remarque que la plupart des points sont concentrés proches du sommet "glucides" ce qui rend difficile la comparaison entre les farines (à part celle qui est très différente des autres).
+
+```{r, ternary diagram de farine, fig.cap = "Diagramme ternaire de la composition en protéine, glucides et lipides de plusieurs types de farines", warning = F, fig.align="center"}
+farine_comp <- acomp(farine[, c("proteines", "glucides", "lipides")])
+ggtern(data = farine, mapping = aes(x = proteines, y = lipides, z = glucides)) +
+  geom_point(size = 1.5) +
+  geom_point(data = data.frame(t(as(mean(farine_comp), "matrix"))), 
+      mapping = aes(x = proteines, y = lipides, z = glucides), col = "red")  +  
+  theme(legend.position = c(0, 1), legend.justification = c(1, 1)) + 
+  theme_rgbw()
+```
+
+Une solution proposée par [@von2002understanding] est de centrer les données dans la géométrie d'Aitchison. Cela revient à calculer la moyenne géométrique puis d'appliquer l'opérateur perturbation sur chaque observation. 
+Pour calculer la moyenne géométrique, cela revient à calculer la moyenne en utilisant les opérateurs du simplexe ($\bar{x}=\frac{1}{n} \odot ({x_1} \oplus \ldots \oplus {x_n})$) :
+
+```{r, centrer data farine}
+farine_mean <- farine_comp[1, ]
+for (k in 2:nrow(farine_comp)) {
+  farine_mean <- farine_mean + farine_comp[k, ]
+}
+farine_mean <- farine_mean / nrow(farine_comp)
+```
+
+**Remarque :** on peut directement utiliser la fonction `mean()` qui va appliquer directement cette formule sur les données de composition
+
+```{r, moyenne geometrique sur data acomp}
+mean(farine_comp)
+```
+
+On centre les données de la manière suivante ($x_k\ominus \bar{x}$, $k=1,\ldots,n$):
+```{r, centrer data}
+farine_comp_ce <- farine_comp - farine_mean
+```
+
+Ensuite, on va créer une fonction qui va nous permettre d'ajouter des étiquettes dans le diagramme ternaire. La fonction `compo_to_ternary()` permet de donner les coordonnées cartésiennes d'une composition dans le diagramme ternaire.
+
+```{r, fonction local pour calculer les coordonnes du ternary diagram}
+compo_to_ternary <- function(s_3, A = c(0, 0), B = c(1, 0), 
+                             C = c(0.5, sqrt(3) / 2)) {
+  if (length(s_3) == 3)
+    s_3 <- t(matrix(s_3))
+  Y_simplex_x <- s_3[, 1] * A[1] + s_3[, 2] * B[1] + s_3[, 3] * C[1]
+  Y_simplex_y <- s_3[, 1] * A[2] + s_3[, 2] * B[2] + s_3[, 3] * C[2]
+  return(cbind(Y_simplex_x, Y_simplex_y))
+}
+```
+
+Dans le diagramme ternaire qui représente les données centrées, on représente également les nouvelles échelles correspondantes. Il est intéressant de noter que le centrage d'une droite reste une droite. Ainsi, nous avons représenté par exemple les segments qui représentent l'ensemble des points du simplexe tel que $lipides = 0.1, 0.05, 0.01$
+
+```{r, ternary diagram avec data centree, fig.width = 4, fig.height = 4, fig.cap = "Diagramme ternaire des données de composition lipides, glucides, protéines, centré autour de la moyenne géométrique",fig.align="center"}
+op <- par(oma = c(.1, .1, .1, .1), mar = c(0.3, 1.2, .5, 1.4))
+plot(farine_comp_ce, pch = 16, cex = 0.5, labels = "")
+text(c(0.04, .99, 1/2), c(-.06, -.06, sqrt(3)/2 + 0.02), 
+     c("proteines", "glucides", "lipides"), pos = 3,  cex = 0.8,
+     col = c("#E16A86", "#50A315", "#009ADE"))
+coord_leg <- compo_to_ternary(farine_comp_ce)
+text(coord_leg[, 1], coord_leg[, 2], farine$type, cex = 0.5, pos = 3)
+# l'axe Lipides
+for (k in c(0.01, 0.05, 0.1, 0.25)) {
+  c_1 <- c(0.000001, 1 - k, k)
+  c_2 <- c(1 - k, 0.000001, k)
+  lines(acomp(rbind(acomp(c_1) - farine_mean,
+              acomp(c_2) - farine_mean)), steps = 1, lty = 4, 
+        lwd = 0.7, col = "#009ADE")
+  coord_leg <- compo_to_ternary(acomp(c_1) - farine_mean)
+  text(coord_leg[, 1], coord_leg[, 2], k, cex = 0.5, pos = 4, col = "#009ADE")
+}
+# l'axe Glucides
+for (k in c(0.75, 0.9, 0.95, 0.99)) {
+  c_1 <- c(0.000001, k, 1 - k)
+  c_2 <- c(1 - k, k, 0.000001)
+  lines(acomp(rbind(acomp(c_1) - farine_mean,
+    acomp(c_2) - farine_mean)), steps = 1, lty = 4, lwd = 0.7, col = "#50A315")
+  coord_leg <- compo_to_ternary(acomp(c_2) - farine_mean)
+  text(coord_leg[, 1], coord_leg[, 2], k, cex = 0.5, pos = 1, 
+       srt = -120, col = "#50A315")
+}
+# l'axe Protéines
+for (k in c(0.05, 0.1, 0.25)) {
+  c_1 <- c(k, 0.000001, 1 - k)
+  c_2 <- c(k, 1 - k, 0.000001)
+  lines(acomp(rbind(acomp(c_1) - farine_mean,
+    acomp(c_2) - farine_mean)), steps = 1, lty = 4, lwd = 0.7, col = "#E16A86")
+  coord_leg <- compo_to_ternary(acomp(c_1) - farine_mean)
+  text(coord_leg[, 1], coord_leg[, 2], k, cex = 0.5, 
+       pos = 3, srt = 120, col = "#E16A86")
+}
+# moyenne géométrique
+g <- compo_to_ternary(farine_mean - farine_mean)
+points(g[, 1], g[, 2], pch = 15, col = "red")
+```
+
+On avait déjà identifié la farine de pois chiche comme étant très différente des autres. A présent, on peut également voir que les faines de type T45, T55, T65, T80 sont moins chargées en lipides que les autres. Les farines de maïs et de riz sont quant à elles moins chargées en protéines. 
+
+### Produit scalaire, norme et distance
+
+Le produit scalaire entre deux vecteurs du simplex s'effectue avec la fonction `scalar()` :
+
+```{r, produit scalaire}
+scalar(farine_comp[1, ], farine_comp[2, ])
+```
+
+Cela revient à effectuer le calcul suivant :
+```{r, ps en dehors de acomp}
+D <- 3
+ps <- 0
+x <- farine_comp[1, ]
+y <- farine_comp[2, ]
+for (j in 1:(D - 1)) 
+  for (i in (j + 1):D)
+    ps <- ps + log(x[i] / x[j]) * log(y[i] / y[j])
+(ps <- ps / 3)
+```
+
+La fonction `norm()` permet de calculer la norme d'un vecteur:
+
+```{r, normaliser}
+norm(x)
+norm(y)
+```
+
+Ce qui est équivalent à :
+
+```{r, normaliser en dehors de acomp}
+norm_x <- 0
+norm_y <- 0
+for (j in 1:(D - 1)) {
+  for (i in (j + 1):D) { 
+    norm_x <- norm_x + log(x[i] / x[j]) * log(x[i] / x[j])
+    norm_y <- norm_y + log(y[i] / y[j]) * log(y[i] / y[j])
+  }
+}
+norm_x <- sqrt(norm_x / 3)
+norm_y <- sqrt(norm_y / 3)
+```
+
+
+La distance d'Aitchison est obtenu avec la fonction `dist()`. Par défaut, elle calcule toutes les distances entre les individus d'un object `acomp`. Ici, on ne calcule que la distance entre les deux premiers individus :
+
+```{r, distance Aitchison}
+dist(farine_comp[1:2, ])
+```
+
+Ce qui est équivalent à faire :
+
+```{r, distance Aitchison alternative}
+sqrt(scalar(x-y, x-y))
+```
+
+**Remarque :** la fonction `dist()` permet de calculer d'autres types de distance (Manhattan ou Minkowski)
+
+## Les transformations alr, clr, ilr
+
+Les trois principaux types de transformation présentées dans le chapitre 3 s'obtiennent avec les fonctions `alr()` (pour *additive log ratio*), `clr()` (pour *centered log-ratio*) et `ilr()` (pour *isometric log-ratio*) et `alrinv()`, `clrinv()` et `ilrinv()` pour leurs inverses. Par ailleurs, les fonctions `ilr2clr()` et `clr2ilr()` permettent de passer d'une transformation à une autre.
+
+Par défaut, `alr()` utilise comme composition de référence la dernière de la liste. On peut changer la référence avec l'option `ivar`. Concernant la fonction `ilr()`, elle prend considère par défaut la matrice de contraste de Helmert, calculée avec la fonction `ilrBase()` et qui vaut : 
+\begin{equation*}
+V = 
+\begin{pmatrix}
+\frac{D-1}{\sqrt{D(D-1)}} & 0 & \cdots & 0 & 0 \\
+\frac{-1}{\sqrt{D(D-1)}} & \frac{D-2}{\sqrt{(D-1)(D-2)}} & \cdots & 0 & 0 \\
+\frac{-1}{\sqrt{D(D-1)}} & \frac{-1}{\sqrt{(D-1)(D-2)}} & \cdots & 0 & 0 \\
+\vdots  & \vdots  & \ddots & \vdots  & \vdots\\
+\frac{-1}{\sqrt{D(D-1)}} & \frac{-1}{\sqrt{(D-1)(D-2)}} & \cdots & \frac{2}{\sqrt{6}} & 0 \\
+\frac{-1}{\sqrt{D(D-1)}} & \frac{-1}{\sqrt{(D-1)(D-2)}} & \cdots & \frac{-1}{\sqrt{6}} & \frac{1}{\sqrt{2}} \\
+\frac{-1}{\sqrt{D(D-1)}} & \frac{-1}{\sqrt{(D-1)(D-2)}} & \cdots & \frac{-1}{\sqrt{6}} & \frac{-1}{\sqrt{2}} 
+\end{pmatrix}
+\end{equation*}
+
+
+```{r, transformation alr ilr clr}
+V <- matrix(c(2 / sqrt(6), - 1 / sqrt(6), - 1 / sqrt(6),
+            0, 1/ sqrt(2), - 1 / sqrt(2)), ncol = 2)
+alr_a <- alr(comp_a, ivar = 3)
+clr_a <- clr(comp_a)
+ilr_a <- ilr(comp_a, V = V)
+```
+
+Nous verrons par la suite quelle stratégie il est possible d'adopter pour définir une matrice de contraste judicieuse. 
+
+### Propriétés des transformations
+
+La transformation $clr(x)$ fait intervenir la moyenne géométrique de $x$ qui vaut $g(x)=(x_1\times x_2\times \ldots x_D)^{1/D}$. Nous allons cartographier $g(x)$ dans le cas où $D=3$. On constate que $g(x)$ est strictement supérieur à 0 et inférieur ou égale à 1/3, cette dernière valeur étant atteinte pour le point neutre $(1/3,1/3,1/3)$. Plus on s'éloigne du point neutre, plus $g(x)$ diminue, les valeurs les plus faibles étant localisées proche du sommet. 
+
+```{r, cartographie moyenne geometrique, echo = F, fig.width = 7, fig.height = 5, fig.cap = "Cartographie des valeurs de $g(x)$ dans le diagramme ternaire", fig.align="center"}
+seq_compo <- NULL
+pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
+for(i in seq(0.01, 0.99, 0.01)) {
+  for(j in seq(0.01, 0.99, 0.01)) {
+    if(1 - i - j > 0)
+    seq_compo <- rbind(seq_compo,
+                       c(i, j, 1 - i - j))
+  }
+}
+g_x <- (seq_compo[, 1] * seq_compo[, 2] * seq_compo[, 3]) ^ (1 / 3)
+# clr 1
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 1, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "Clr 1")
+bk <- seq(0, 1/3, length.out = 9)
+bk[1] <- 0
+bk[9] <- 1/3 
+for(i in 1:nrow(seq_compo)) {
+  ind <- findInterval(g_x[i], bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.8, title = "g(x)", 
+       fill = pal1)
+```
+
+Nous allons à présent vérifier certaines propriétés de la transformation clr.
+
+* La somme des composantes de la transformation clr vaut 0
+
+```{r, somme clr egal zero}
+all(round(apply(clr_a, 1, sum), 12) == 0)
+```
+
+* $\text{clr}(\mathbf{x}) = G_D \text{ln}(\mathbf{x})= (\mathbf{I}_D - \frac{1}{D}\mathbf{1}_{D \times D})\text{ln}(\mathbf{x})$
+```{r, propriete clr}
+(diag(3) - matrix(1/3, 3, 3)) %*% log(as.numeric(comp_a[1, ]))
+clr_a[1, ]
+```
+
+
+On s'intéresse à présent aux propriétés de ilr :
+
+* $\text{ilr}_{V}(\mathbf{x} \oplus \mathbf{y}) = \text{ilr}_{V_D}(\mathbf{x}) + \text{ilr}_{V_D}(\mathbf{y})$
+
+```{r, propriete ilr}
+ilr(x + y)
+ilr(x) + ilr(y)
+```
+
+* $\text{ilr}_{V}(\alpha \odot \mathbf{x}) = \alpha \cdot \text{ilr}_{V}(\mathbf{x})$
+
+```{r, propriete ilr 2}
+ilr(2 * x)
+2 * ilr(x)
+```
+
+* $\langle \mathbf{x}, \mathbf{y} \rangle_A = \langle \text{ilr}_{V}(\mathbf{x}, \text{ilr}_{V}(\mathbf{y}) \rangle_E$
+
+```{r, propriete ilr 3}
+scalar(x, y)
+sum(ilr(x) * ilr(y))
+```
+
+* $\|\mathbf{x} \|_A = \|\text{ilr}_{V}(\mathbf{x}) \|_E$
+
+```{r, propriete ilr 4}
+norm(x)
+sqrt(sum(ilr(x) * ilr(x)))
+```
+
+* $\text{d}_A(\mathbf{x}, \mathbf{y}) = \text{d}_E(\text{ilr}_{V_D}(\mathbf{x}), \text{ilr}_{V_D}(\mathbf{y}))$
+
+```{r, propriete ilr 5}
+norm(x-y)
+dist(rbind(
+  ilr(x),
+  ilr(y)
+))
+```
+
+
+### Signification des axes
+
+A présent, nous allons représenter le nuage des points des scores des trois principaux candidats dans les deux espaces transformés alr et ilr, avant de faire la représentation des coordonnées clr :
+
+```{r, scatter plot des transformations, fig.width = 6, fig.height = 3, fig.cap = "Représentation des scores des trois principaux candidats dans les espaces alr et ilr", fig.align="center"}
+par(mfrow = c(1, 2), mar = c(4, 4, 1, 1), oma = c(0, 0, 0, 0))
+plot(alr_a[, 1], alr_a[, 2], xlab = "alr 1", ylab = "alr 2", main = "ALR")
+abline(h = 0, v = 0, lty = 2)
+plot(ilr_a[, 1], ilr_a[, 2], xlab = "ilr 1", ylab = "ilr 2", main = "ILR")
+abline(h = 0, lty = 2)
+```
+
+
+L'interprétation des coordonnées dans les espaces transformés n'est pas triviale, mais il peut apporter des informations complémentaires. Par exemple, dans l'espace alr ayant pour référence Mélenchon, le nuage de points des deux composantes $\log(\frac{Macron}{Mélenchon})$ et $\log{\frac{Le~Pen}{Mélenchon}}$ permet de découper le nuage de points en 4 quadrants : 
+
+* le quadrant H-H (high-high) où Mélenchon a été battu par Macron et Le Pen 
+* le quadrant L-L (low-low) où Mélenchon a battu Macron et Le Pen 
+* le quadrant H-L (high-low) où Mélenchon a été battu par Macron et a battu Le Pen
+* le quadrant L-H (low-high) où Mélenchon a été battu par Macron et a battu Le Pen
+
+Par construction, l'axe 2 de l'espace ilr oppose Mélenchon et Le Pen : des valeurs positives indiquent un score de Le Pen supérieur à celui de Mélenchon. L'axe 1 représente la quantité $\frac{1}{\sqrt{6}}\log(\frac{Macron^2}{Le~Pen\times Mélenchon})$ et est plus compliqué à interpréter : plus les valeurs sont fortement positives, plus le score de Macron est fort comparativement  à celui de Le Pen ou Mélenchon. Pour résumer le lien qui attache les données de composition avec l'espace ilr (avec le choix de la matrice $V$ précédente), nous avons discrétisé les valeurs des deux premières composantes ilr 1 et ilr 2 et les avons représentés dans le diagramme ternaire avec des couleurs différentes. 
+
+```{r, cartographie des ilr dans le diagramme ternaire, echo = F, fig.width = 8, fig.height = 4, fig.cap = "Cartographie des valeurs des ilr 1 et ilr 2 dans le diagramme ternaire", fig.align="center"}
+seq_compo <- NULL
+pal1 <- RColorBrewer::brewer.pal(9, "BrBG")
+for(i in seq(0.01, 0.99, 0.01)) {
+  for(j in seq(0.01, 0.99, 0.01)) {
+    if(1 - i - j > 0)
+    seq_compo <- rbind(seq_compo,
+                       c(i, j, 1 - i - j))
+  }
+}
+op <- par(mfrow = c(1, 2))
+# ilr 1
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 0.5, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "ilr 1")
+vec_1 <- NULL
+bk <- seq(-4, 4, length.out = 9)
+bk[1] <- -100
+bk[9] <- 100 
+for(i in 1:nrow(seq_compo)) {
+  ilr1 <- log(seq_compo[i, 1]^2 / (seq_compo[i, 2]*seq_compo[i, 3])) / sqrt(6)
+  ind <- findInterval(ilr1, bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+  vec_1 <- c(vec_1, ilr1)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.6, title = "ilr 1", 
+       fill = pal1)
+# ilr 2
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 0.5, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "ilr 2")
+vec_2 <- NULL
+bk <- seq(-4, 4, length.out = 9)
+bk[1] <- -100
+bk[9] <- 100 
+for(i in 1:nrow(seq_compo)) {
+  ilr2 <- log(seq_compo[i, 2] / seq_compo[i, 3]) / sqrt(2)
+  ind <- findInterval(ilr2, bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+  vec_2 <- c(vec_2, ilr2)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.6, title = "ilr 2", 
+       fill = pal1)
+par(op)
+```
+
+L'espace CLR est en dimension $\mathbb{R}^3$; une façon de les visualiser et de représenter les paires des CLR dans des nuages de points. 
+
+```{r, sccater plot des clr, fig.width = 9, fig.height = 3, fig.cap = "Représentation des scores dans l'espace clr", fig.align="center"}
+par(mfrow = c(1, 3), mar = c(4, 4, 1, 1), oma = c(0, 0, 0, 0))
+plot(clr_a[, 1], clr_a[, 2], xlab = "clr 1", ylab = "clr 2")
+abline(h = 0, v = 0, lty = 2)
+plot(clr_a[, 1], clr_a[, 3], xlab = "clr 1", ylab = "clr 3")
+abline(h = 0, v = 0, lty = 2)
+plot(clr_a[, 2], clr_a[, 3], xlab = "clr 2", ylab = "clr 3")
+abline(h = 0, v = 0, lty = 2)
+```
+
+En cartographiant les valeurs des clr dans des diagrammes ternaires, on constate que le premier axe de clr 1 a la même signification que le premier axe de ilr 1. Plus les valeurs sont fortes et positives, plus le score de Macron est supérieur à celui de Le Pen ou Mélenchon. Finalement, les axes 2 et 3 de l'espace CLR s'interprètent  comme le 1er axe, en remplaçant Macron par Le Pen (axe 2) et Mélenchon (axe 3). 
+
+```{r, cartographie des clr, echo = F, fig.width = 12, fig.height = 4, fig.cap = "Cartographie des valeurs des CLR dans le diagramme ternaire", fig.align="center"}
+seq_compo <- NULL
+pal1 <- RColorBrewer::brewer.pal(9, "BrBG")
+for(i in seq(0.01, 0.99, 0.01)) {
+  for(j in seq(0.01, 0.99, 0.01)) {
+    if(1 - i - j > 0)
+    seq_compo <- rbind(seq_compo,
+                       c(i, j, 1 - i - j))
+  }
+}
+g_x <- (seq_compo[, 1] * seq_compo[, 2] * seq_compo[, 3]) ^ (1 / 3)
+clr1 <- log(seq_compo[, 1] / g_x)
+clr2 <- log(seq_compo[, 2] / g_x)
+clr3 <- log(seq_compo[, 3] / g_x)
+op <- par(mfrow = c(1, 3))
+# clr 1
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 0.5, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "Clr 1")
+bk <- seq(-4, 4, length.out = 9)
+bk[1] <- -100
+bk[9] <- 100 
+for(i in 1:nrow(seq_compo)) {
+  ind <- findInterval(clr1[i], bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.8, title = "clr 1", 
+       fill = pal1)
+# clr 2
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 0.5, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "Clr 2")
+bk <- seq(-4, 4, length.out = 9)
+bk[1] <- -100
+bk[9] <- 100 
+for(i in 1:nrow(seq_compo)) {
+  ind <- findInterval(clr2[i], bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.8, title = "clr 2", 
+       fill = pal1)
+# clr 3
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 0.5, 
+     labels = c("Macron", "Le Pen", "Mélenchon"),
+     main = "Clr 3")
+bk <- seq(-4, 4, length.out = 9)
+bk[1] <- -100
+bk[9] <- 100 
+for(i in 1:nrow(seq_compo)) {
+  ind <- findInterval(clr3[i], bk, all.inside = TRUE)
+  plot(acomp(seq_compo[i, ]), col = pal1[ind], add = T, pch = 16)
+}
+plot(acomp(c(1/3, 1/3, 1/3)), pch = 15, cex = 0.75, col = "red", add = T)
+decoup <- c("<=-3", "]-3;-2]", "]-2;-1]", 
+            "]-1;0]", "]0;1]", "]1;2]", "]2;3]", ">3")
+legend("topleft", legend = decoup, cex = 0.8, title = "clr 3", 
+       fill = pal1)
+par(op)
+```
+
+### Moyenne et Variance
+
+Avec les données de composition, le calcul des moyennes et de variances se font dans les espaces transformés. Quel que soit la transformation utilisée, on retrouve la même information; par exemple, si on calcule la moyenne au sens "classique" dans les trois espaces et on les re-transforme dans le simplexe, on retrouve le même résultat :
+
+```{r, transformations inverses}
+mean_alr <- apply(alr_a, 2, mean)
+mean_ilr <- apply(ilr_a, 2, mean)
+mean_clr <- apply(clr_a, 2, mean) 
+alrInv(mean_alr)
+ilrInv(mean_ilr)
+clrInv(mean_clr)
+```
+
+Si on applique la fonction `var()` sur un objet `acomp`, cela revient à calculer la matrice de variance-covariance $\hat\Sigma$ dans l'espace ilr avec la fonction $var()$ :
+
+```{r, variance dans ilr}
+var(ilr_a)
+```
+
+et de revenir dans le simplexe à l'aide de la transformation $V\hat\Sigma V^t$ :
+
+```{r, inverse ilr}
+V %*% var(ilr_a) %*% t(V)
+```
+
+On retrouve le même résultat que :  
+```{r, fonction var sur acomp}
+var_s <- var(comp_a)
+```
+
+
+## Lois dans le simplexe
+
+Nous allons présenter ici quelques lois décrites dans le chapitre 7. 
+
+### Loi normale dans le simplexe
+
+Dans un premier temps, nous allons simuler des données selon des lois normales dans le simplexe avec les paramètres suivants : $\mu_1=(1/3,1/3,1/3)$, $\mu_2=(0.5, 0.3, 0.2)$ et $\mu_3=(0.2,0.2,0.6)$ et $\Sigma_1=0.1\begin{pmatrix}
+1 & 0 & 0\\
+0 & 1 & 0 \\
+0 & 0 & 1
+\end{pmatrix}$, $\Sigma_2=0.1\begin{pmatrix}
+3 & 0 & 0\\
+0 & 2 & 0 \\
+0 & 0 & 1
+\end{pmatrix}$ et $\Sigma_3=0.1\begin{pmatrix}
+1 & 0.8 & 0.2\\
+0.8 & 1 & .5 \\
+0.2 & 0.5 & 1
+\end{pmatrix}$, où $\mu_k$ représente la moyenne dans le simplexe alors que $\Sigma_j$ représente la matrice de variance-covariance dans l'espace clr. Il s'agit des paramètres  d'entrée de la fonction `rnorm.acomp()` qui permet de simuler des données. La fonction `ellipses()` permet de représenter l'ellipse $(\psi-\alpha)T(\psi-\alpha)^t=r^2$. En choisisant $\alpha$ comme étant la moyenne dans le simplexe et $T$ la matrice de variance covariance dans l'espace clr, cela revient à tracer les intervalles de confiance sous forme de lignes de niveau (pour cela, on doit choisir le paramètre `r` selon une loi de $\chi^2$ à $D-1$ degrés de libertés). On remarque que l'allure des nuages des points est très différente d'un ensemble de paramètres à un autre. Il est même difficile de distinguer quelle est l'influence du paramètre de la moyenne et celle de la variance   
+
+```{r, plot de lois normales dans le simplexe, gig.width = 6, fig.height = 6, fig.cap = "Distribution de lois normales dans le simplexe pour différents paramètres de la moyenne (en lignes) et de la matrice de variance-covariance dans l'espace clr (en colonnes)",fig.align="center"}
+library(latex2exp)
+my_mean_vec <- acomp(rbind(
+  c(1/3, 1/3, 1/3),
+  c(0.5, 0.3, 0.2),
+  c(0.2, 0.2, 0.6)
+))
+
+my_var_list <- list(
+  0.1 * matrix(c(1, 0, 0, 0, 1, 0, 0, 0, 1), ncol = 3),
+  0.1 * matrix(c(3, 0, 0, 0, 2, 0, 0, 0, 1), ncol = 3),
+  0.1 * matrix(c(1, 0.8, 0.2, 0.8, 1, 0.5, 0.2, 0.5, 1), ncol = 3)
+)
+opar <- par(mar = c(1, 1, 1, 1), mfrow = c(3, 3))
+for(k in 1:3) {
+  for(j in 1:3) {
+    my_mean <- my_mean_vec[k, ]
+    my_var <- my_var_list[[j]]
+    plot(my_mean, pch = 15, col = "red", main = "données simulées")
+    for(p in c(0.5, 1:9, 9.5)/10) {
+      r <- sqrt(qchisq(p = p, df = 2))
+      ellipses(my_mean, my_var, r, col="grey")
+    }
+    xr <- rnorm.acomp(n = 100, mean = my_mean, var = my_var)
+    plot(xr, add = TRUE, pch = 19, cex = 0.5)
+    if(j == 1)
+      text(0.02, 0.5, TeX(sprintf(r'($\mu_ %g$)', k)), cex = 0.95)
+    if(k == 1)
+      text(0.5, 0.97, TeX(sprintf(r'($\Sigma_ %g$)', j)), cex = 0.95)
+  }
+}
+
+```
+
+
+A présent, on va s'intéresser au jeu de données des élections et on va vérifier si sa distribution pourrait être celle d'une loi normale dans le simplexe. Dans un premier temps, on va comparer notre jeu de données avec un jeu de données simulé issu d'une loi normale dans le simplexe. On remarque qu'un grand nombre d'observations de notre échantillon sort de la zone de confiance de niveau $95\%$ et il est donc peu probable que notre échantillon soit issu d'une loi normale dans le simplexe.
+
+```{r, simulation data et representation lois, fig.width = 12, fig.height = 5, fig.cap = "Données simulées selon une loi normale du simplexe (figure sur la gauche); données observées (figure sur la droite)",fig.align="center"}
+opar <- par(mar = c(3, 3, 1, 1), mfrow = c(1, 2))
+plot(clrInv(mean_clr), pch = 15, 
+     col = "red", main = "données simulées")
+for(p in c(0.5, 1:9, 9.5)/10) {
+  r <- sqrt(qchisq(p = p, df = 2))
+  ellipses(clrInv(mean_clr), var_s, r, col="grey")
+}
+xr <- rnorm.acomp(n = 107, mean = clrInv(mean_clr), var = var_s)
+plot(xr, add = TRUE, pch = 19, cex = 0.5)
+
+plot(clrInv(mean_clr), pch = 15, col = "red",
+     main = "données observées")
+for(p in c(0.5, 1:9, 9.5)/10) {
+  r <- sqrt(qchisq(p = p, df = 2))
+  ellipses(clrInv(mean_clr), var_s, r, col="grey")
+}
+plot(comp_a, add = T, pch = 19, cex = 0.5)
+par(opar)
+
+```
+
+Une première solution pour tester si notre jeu de données est issu d'une loi normale dans le simplexe, est de regarder si les lois marginales sont toutes issues d'une loi normale. On peut utiliser la fonction `qqnorm()` qui s'applique sur des données de composition et calcule pour chaque log-ratio le qqplot associé. Dans cet exemple, les log-ratio où intervient la composante "Mélenchon" semblent très éloignés d'une loi normale, ce qui a l'air de confirmer que le jeu de données n'est pas issu d'une loi normale dans le simplexe.  
+
+
+```{r, qqplot data, fig.width = 6, fig.height = 6, fig.cap = "QQplot des lois marginales sur les log-ratio",fig.align="center"}
+qqnorm(comp_a)
+```
+
+On peut également utiliser un test basé sur la statistique d'énergie $E$ [@Szekely], implémenté dans le package `energy` et qui permet de tester la loi normale multivariée sur les données transformées dans l'espace ilr. Dans notre exemple, l'hypothèse que les données sont distribuées selon une loi normale multivariée est rejetée comme on pouvait s'y attendre :
+
+```{r, test normalite multivariee}
+energy::mvnorm.etest(ilr(comp_a), R = 199)
+```
+
+### Autres distributions
+
+* Dirichlet : la fonction `rDirichlet.acomp()` permet de simuler des données selon une loi de Dirichlet et la fonction `dDirichlet()` retourne la fonction de densité. Dans l'exemple suivant, nous avons représenté la fonction de densité pour différents paramètres lorsque $D=2$. 
+
+```{r, representation dirichlet, fig.width = 10, fig.height = 4, fig.cap = "Fonction de densité de la loi de Dirichlet lorsque D = 2",fig.align="center"}
+x <- seq(0, 1, 0.01)
+my_comp <- acomp(cbind(x, 1 - x))
+par(mfrow = c(1, 3))
+plot(x, dDirichlet(my_comp, alpha = c(A = 0.3, B = 0.3)), type = "l", ylab = "f(x)",
+     main = TeX(r"($\alpha_1=0.3, alpha_2=0.3$)"))
+plot(x, dDirichlet(my_comp, alpha = c(A = 1, B = 1)), type = "l", ylab = "f(x)",
+     main = TeX(r"($\alpha_1=1, alpha_2=1$)"))
+plot(x, dDirichlet(my_comp, alpha = c(A = 2, B = 2)), type = "l", ylab = "f(x)",
+     main = TeX(r"($\alpha_1=2, alpha_2=2$)"))
+```
+
+On mentionnera la fonction `fitDirichlet()` qui permet d'estimer les paramètres de la loi de Dirichlet à partir d'un jeu de données. Par exemple, sur les données présidentielles :
+
+```{r, estimer parametres dirichlet}
+fit_d <- fitDirichlet(comp_a)
+```
+
+Ce qui nous permet ensuite de représenter la distribution de la loi de Dirichlet avec les paramètres estimés. 
+
+```{r, representation loi dirichlet, fig.width = 5, fig.height = 5, fig.cap = "Estimation d'une loi de Dirichlet sur les données d'élection",fig.align="center"}
+opar <- par(mar = c(3, 3, 1, 1))
+myalpha = fit_d$alpha
+plot(comp_a)
+plot(acomp(myalpha), pch = 16, col = "red", add = T)
+aux = seq(from=0, to=1, by=0.01)
+myx = expand.grid(x=aux,y=aux)
+c60 = cos(pi/3)
+s60 = sin(pi/3)
+myfun = function(x){
+  y = c(x[1]-x[2]*c60/s60, x[2]/s60)
+  y = c(1-sum(y),y)
+  dd = ifelse(any(y < 0), NA, dDirichlet(y, alpha = myalpha))
+  return(dd)
+}
+dx = apply(myx, 1, myfun)
+dim(dx) = c(101, 101)
+contour(dx, asp = 1, levels = quantile(
+  dDirichlet(rDirichlet.acomp(1000, myalpha), myalpha), 
+  c(0.5, 1:9, 9.5)/10, na.rm = T),
+        add = TRUE, col = "grey")
+par(opar)
+```
+
+Enfin, on notera les fonctions `rAitchison()` et `dAitchison()` qui permettent de simuler et calculer la fonction de densité d'une loi d'Aitchison. 
+
+
+# Analyse exploratoire (avec une approche compositionnelle) #
+
+## Matrice de diagramme ternaire 
+
+Nous avons vu dans la section précédente comment représenter le diagramme ternaire sur des données de compositions où $D=3$. Lorsque $D>3$, on peut représenter des matrices de diagrame ternaires, où la cellule $(i,j)$ de la matrice représente le diagramme ternaire de la sous-composition $(x_i,x_j,*)$ avec plusieurs façons de définir la troisième composante. Prenons par exemple les parts de marché de cinq constructeurs automobiles obtenues sur une période de 152 mois consécutifs. Avant de s'intéresser au diagramme ternaire, nous allons représenter chaque composante comme étant une série temporelle à l'aide de la fonction `zoo()` du package `zoo`  [@zoo]:
+
+```{r, data automobile, message = F}
+library(codareg)
+data(BDDSegX)
+Y_s <- BDDSegX[, c("S_A", "S_B", "S_C", "S_D", "S_E")]
+colnames(Y_s) <- c("A", "B", "C", "D", "E")
+Y_s_zoo <- zoo::zoo(as(Y_s, "matrix"), BDDSegX[, "Date"])
+Y_s <- acomp(Y_s)
+```
+
+On observe que les parts de B et C dominent le marché et ont globalement eu tendance à augmenter les derniers mois, B ayant été pendant quelques mois au-dessus de C. Le constructeur A était au début à peu près au même niveau que E, puis sa part a augmenté possiblement au détriment de E dont la part est celle semble avoir le plus baissé au cours du temps. Le constructeur D a également diminué sa part de marché au fil du temps.
+
+```{r, time series des shares, fig.width = 6, fig.height=4, fig.cap = "Série des parts de marchés automobile des 5 marques de constructeurs étudiées",fig.align="center"}
+D_market <- ncol(Y_s)
+hues <- seq(15, 375, length = D_market + 1)
+my_col <- hcl(h = hues, l = 65, c = 100)[1:D_market]
+par(las = 1, mar = c(3, 4, 1, 1))
+plot(Y_s_zoo, screens = 1, col = my_col, lwd = 2,
+     ylab = "Market share automobile", xlab = "Time", ylim = c(0, 0.5))
+legend("topleft", legend = c("A", "B", "C", "D", "E"), lty = 1, col = my_col,
+       horiz = T, cex = 0.75, lwd = 2)
+
+```
+
+
+Pour représenter la matrice de diagrame ternaire, on utilise directement la fonction `plot()` du package `compositions`. Si on choisit l'option `margin="acomp"` (option par défault), la troisième composante (représentée par `"*"`) est calculée comme étant la moyenne géométrique de toutes les parts hormis les deux premières. On peut regarder les triangles ligne par ligne. Si on regarde par exemple la première ligne, on constate que la part A est clairement dominée par la part B (triangle $(A,B,*)$) et la part C (triangle $(A,C,*)$). La moyenne géométrique des trois autres composantes dans les deux premiers triangles n'est pas particulièrement grande ceci s'expliquant par le fait que dans la dernière composante, il y a une composante très forte (B ou C), les deux autres étant relativement faibles. En revanche, le triangle $(A, D,*)$ montre que A et D ont à peu près eu les mêmes parts de marché, celles-ci étant significativement plus faible que la moyenne géométrique des trois autres parts. Enfin, le triangle $(A,E,*)$ montre que la part de E est un peu plus élevé que celle de A, mais les deux parts A et E sont négligeables par rapport à la moyenne géométrique des trois autres parts. 
+
+```{r, matrice diagramme ternaire, fig.width = 5, fig.height = 5, fig.cap = "Matrice de diagramme ternaires, avec la troisième composante égale à la moyenne géométrique des autres composantes"}
+plot(Y_s, margin = "acomp", pch = 3, cex = 0.6)
+```
+
+**Remarque :** il est possible de centrer les données avec l'option `center = TRUE` en utilisant la formule de centrage dans la géométrie d'Aitchison. Par ailleurs, si on choisit l'option `margin="rcomp"`, la troisième composante est prise comme étant la somme arithmétique de toutes les autres composantes.  
+
+
+## Matrice de variation
+
+La matrice de variation $\textbf{T}$ s'obtient avec la fonction `variation()`:
+
+```{r, matrice de variation}
+var_T <- variation(Y_s)
+```
+
+La cellule $(i,j)$ est calculée de la façon suivante $\tau_{ij}=var(\log\frac{x_i}{x_j})$. Par exemple pour la cellule $(1,2)$ : 
+
+```{r, detail matrice variation}
+var(log(Y_s[, 1] / Y_s[, 2]))
+```
+
+Il est facile de voir que $\textbf{T}$ est symétrique sachant que $\log\frac{a}{b}=-\log\frac{b}{a}$ et que $var(-c)=var(c)$.
+
+**Remarque :** si $x_i=k x_j$, avec $k$ un scalaire, alors  $\tau_{ij}=0$. Autrement dit, une faible valeur de $\tau_{ij}$ implique une variance faible de $\log\frac{x_i}{x_j}$ et donc une "bonne proportionnalité" entre $x_i$ et $x_j$. Ainsi, on observe que la valeur de $\tau_{ij}$ entre A et E est la plus élevée (on avait effectivement remarqué que les parts de A et de E étaient très proches au début, puis elles se sont éloignées l'une de l'autre). De même la valeur de $\tau_{ij}$ entre B et C est la plus faible (on avait effectivement que B et C se suivaient au cours du temps). 
+
+En utilisant la fonction `boxplot()` sur un objet `acomp`, on représente la matrice des boîtes à moustaches des log-ratio par paires.
+
+```{r, boxplot des log ratio, fig.width = 5, fig.height = 5, fig.cap = "Matrice des boîtes à moustaches des log-ratio par paires"}
+boxplot(Y_s)
+```
+
+Enfin, la variance totale $VarTot$ est définie comme $\frac{1}{D^2}\sum\sum_{j<j'}\tau_{jj'}$:
+
+```{r, variance totale}
+VarTot <- sum(var_T * upper.tri(var_T)) / D_market ^ 2
+```
+
+La variance $VarTot$ peut également être vue comme la moyenne des variances de chaque composante clr et nous permet de calculer les contributions de chaque part :  
+```{r, contributions des clr}
+var_j <- diag(var(clr(Y_s)))
+var_j / sum(var_j)
+```
+
+Ainsi, la part A et la part E sont les deux parts qui contribuent le plus à la variance totale. 
+
+**Remarque :** dans la chapitre 4, des points de pondération ont été introduits. Comme les fonctions du package `compositions` ne semblent pas prendre en compte ces poids, il s'agira de faire les calculs "à la main". 
+
+
+## Apprentissage automatique dans l'espace des variables
+
+### Classification Ascendante Hierarchique (CAH) 
+
+En assimilant la matrice de variation à une mesure de distance entre les variables, on peut lui appliquer une méthode de classification ascendante hiérarchique  (CAH). Cela se fait avec la fonction de base `hclust()`, appliquée à la matrice de variation transformée en un objet de type `dist`. Il existe plusieurs variantes de l'algorithme et la méthode de Ward est celle que nous avons choisie par défaut (voir par exemple https://www.math.univ-toulouse.fr/~sdejean/PDF/stat_multidim_sdejean.pdf pour plus d'information sur la CAH).  
+
+Le résultat montre que B et C ont été les premiers à être regroupés, puis D et E, puis le groupe (B, C) avec A. Par ailleurs, la décision de définir à quel niveau il faut couper le dendrogramme  est subjective, mais en général, il s'agit de choisir le niveau correspondant à un saut ayant la hauteur la plus élevée; dans notre exemple, cela suggère de garder deux groupes de variables : 
+
+* Les constructeurs D et E forment ainsi la première classe 
+* Les constructeurs A, B et C forment la deuxième classe
+
+```{r, CAH sur les variables, fig.align='center', fig.width = 5, fig.height = 4, fig.cap="Dendrograme associé à la CAH réalisée sur la matrice de variation des données de constructeurs automobiles.", fig.align="center"}
+dd <- as.dist(var_T)
+hc <- hclust(dd, method = "ward.D")
+plot(hc, xlab = "Méthode de Ward", sub = "")
+```
+
+A partir des regroupements obtenus avec la CAH, il est possible de re-définir de nouvelles coordonnées ilr (Log Ratio Balance). Pour faire cela, on peut utiliser la fonction `balance()` de la manière suivante :  
+
+```{r, faire des balances}
+head(balance(X = Y_s, expr = ~(D/E)/(A/(B/C))))
+```
+
+Ce qui revient à définir la matrice de signe de la partition binaire suivante :
+
+```{r, matrice de signe}
+sign_binary <- matrix(c(-1, -1, -1, 1, 1,
+         0, 0, 0, 1, -1,
+         1, -1, -1, 0, 0,
+         0, 1, -1, 0, 0), byrow = T, ncol = 5)
+```
+
+Et de construire la matrice de contraste $V$ :
+
+```{r, contraste basee sur la matrice de signe}
+V_binary <- sign_binary
+for (j in 1:nrow(V_binary)) {
+  card_J_plus <- length(which(sign_binary[j, ] == 1)) 
+  card_J_moins <- length(which(sign_binary[j, ] == -1)) 
+  alpha <- sqrt(card_J_plus * card_J_moins / (card_J_plus + card_J_moins))
+  row_j <- V_binary[j, ]
+  row_j[row_j == 1] <- 1 / card_J_plus
+  row_j[row_j == -1] <- - 1 / card_J_moins
+  V_binary[j, ] <- alpha * row_j                                
+}
+```
+
+Et d'appliquer la formule $V^T\log(x)$ observation par observation. Par exemple, pour la 1ère observation : 
+
+```{r, tranformation ilr manuel}
+V_binary %*% log(as.numeric(Y_s[1, ]))
+```
+
+Appliquer une méthode statistique sur une transformation ilr plutôt qu'une autre donnera les mêmes résultats lorsqu'on revient dans le simplexe. En revanche, l'analyse descriptive devrait être plus intuitive car elle se base sur une balance qui a une signification. Par ailleurs, définir les balances en utilisant des connaissances d'un expert métier (par exemple si on sait que les modèles des voitures du constructeur B et C utilisent la même technologie, mais qui est différente de celle de A), il peut être judicieux de créer les balances à partir de cette information. 
+
+
+## Apprentissage automatique dans l'espace des individus
+
+### L'Analyse en Composantes Principales (ACP)
+
+Nous avons déjà vu la fonction `dist()` du package `compositions` qui, appliquée à un object `acomp`, calcule la distance d'Aitchison entre chaque paires d'individus. 
+
+```{r, matrice de distance entre individus}
+dist_market <- dist(Y_s)
+```
+
+Une fois la matrice de distance calculée, il est possible d'utiliser la fonction `cmdscale()` qui permet de réaliser un échelonnement muldimensionnel (présenté au chapitre 4) dont on peut représenter la projection sur les deux composantes choisies. On peut ajouter les CLR comme variables supplémentaires en utilisant leurs coefficients de régression sur
+les deux dimensions de la solution.
+
+```{r, plot des MDS, fig.width = 6, fig.height = 5, fig.cap = "MDS des parts de marché automobiles", fig.align="center"}
+mds <- cmdscale(dist_market)
+x <- mds[, 1]
+y <- mds[, 2]
+plot(x, y, pch = 16, cex = 0.7, xlab = "", ylab = "", main = "",
+     xlim = c(-1, 1), ylim = c(-1, 1), asp = 1)
+abline(h = 0, v = 0, lty = 2)
+clr_market <- clr(Y_s)
+for(k in 1:5) {
+  coeff_clr <- coefficients(lm(clr_market[, k] ~ x + y -1))
+  points(coeff_clr[1], coeff_clr[2], col = "red", pch = 15)
+  text(coeff_clr[1], coeff_clr[2], LETTERS[k], col = "red", pos = 3)
+}
+```
+
+En vérité, le biplot est majoritairement utilisé pour illustrer le résultat de l'analyse en composantes principales (ACP). Pour les données de composition, l'ACP est effectuée sur les coordonnées clr. Pour cela, on peut utiliser directement la fonction `princomp()` sur un objet `acomp`, ensuite la fonction `biplot()` permet de représenter la projection des individus et des variables sur les deux premières composantes de l'ACP. Par ailleurs, nous avons également utilisé la fonction `screeplot()` qui permet de représenter la variance expliquée par chaque axe de l'ACP et qui nous confirme ici que deux axes sont probablement suffisants :
+
+```{r, biplot sur ACP, fig.width = 10, fig.height = 5, fig.cap = "Biplot obtenu après une ACP réalisée sur les coordonnées CLR", fig.align="center"}
+pca <- princomp(Y_s)
+par(mfrow = c(1, 2), las = 1)
+screeplot(pca)
+biplot(pca, cex = 0.5)
+abline(h = 0, v = 0, lty = 2)
+```
+
+L'interprétation du biplot est très différente de celle réalisée classiquement sur des données non compositionnelles. En effet, on s'intéresse ici d'une part aux rayons (*ray* en anglais) qui correspondent aux longueurs entre l'origine et les coordonnées des variables ($\bar{OA}$ par exemple) dont le carré vaut à peu près $Var(\log(\frac{x_A}{g(x)}))$. D'autre part, on s'intéresse aux connections (*link* en anglais) ou longueurs  entre les coordonnées des variables ($\bar{AE}$ par exemple), dont le carré vaut à peu près $Var(\log(\frac{x_A}{x_E}))$.
+
+A partir de ces longueurs, on peut faire les remarques suivantes : 
+
+* si deux variables sont proportionnelles ($x_i=kx_j$), leur log-ratio est quasi-constant et leurs coordonnées dans le biplot doivent être très proches. C'est le cas des constructeurs B et C dans notre exemple.
+
+* si la longueur entre deux composantes est grande, le log-ratio entre les deux parts est volatile. De plus, si on observe trois rayons orientés vers des directions différentes à 120 degrès environ (par exemple $\bar{OA}$, $\bar{OC}$ et $\bar{OE}$) et avec de fortes longueurs, alors le diagramme ternaire des trois sous-composition aura des points éparpillés dans le triangle.    
+
+* les angles entre les connections doivent approximer la corrélation entre les log-ration 
+    + si deux connections sont perpendiculaires, alors les deux log-ratio ne sont pas corrélées (par exemple $\log(\frac{C}{B})$ et $\log{\frac{D}{E}}$) 
+    + si trois composantes sont parfaitement alignées, alors les log-ratio sont fortement corrélés (dans notre exemple, B, D et E). Dans ce cas, une représentation de ces sous-composition devraient former une forme sur une seule dimension, autrement dit, ces sous-compositions sont colinéaires. 
+
+On notera la fonction `loadings()` qui permet de récupérer les coordonnées des axes principaux dans l'espace CLR. Cela peut nous permettre de représenter les axes dans le simplexe. Ici, on transforme les coordonnées de l'axe 1 dans le simplexe, avant de le représenter dans le diagramme ternaire avec la fonction `straight()`. L'idée est d'identifier les diagrammes où la direction de l'axe 1 s'ajuste le mieux aux données (les diagrammes $(E,D,*)$, $(B,D,*)$ par exemple) 
+
+```{r, afficher axe ACP dans ternary diagram, eval = F}
+axe_1 <- clrInv(loadings(pca)[, 1])
+plot(acomp(Y_s), pch = 16, cex = 0.5) # , margin = "acomp")
+straight(mean(acomp(Y_s)), axe_1)
+```
+
+```{r, fig.cap = "Représentation de l'axe 1 de l'ACP dans le simplexe", fig.align="center", echo = F}
+if (knitr::is_html_output()) {
+  knitr::include_graphics("figures/pca_simplex.jpg")
+} else {
+  knitr::include_graphics("figures/pca_simplex.pdf")
+}
+```
+
+### Classification sur les individus
+
+Il est possible d'appliquer une méthode de classification à partir de la projection des observations obtenus à l'aide de la MDS ou de l'ACP. Prenons par exemple les coordonnées des observations obtenus dans la MDS. On applique ici une classification à partir de l'algorithme  des $K$-means (voir par exemple https://www.math.univ-toulouse.fr/~sdejean/PDF/stat_multidim_sdejean.pdf pour plus de détails). Cette méthode est implémentée dans la fonction `kmeans()`. Contrairement à la classification ascendante hiérarchique, l'utilisateur doit spécifier le nombre de classes choisies. Ici, l'analyse des biplot précédents laisse suggérer une répartition des observations en trois groupes.    
+
+```{r, k-means}
+clust <- kmeans(mds, 3)$cluster %>%
+  as.factor()
+```
+
+Chaque groupe détecté par la classification correspond à une période de temps spécifique. On peut également représenter les groupes détectés dans un diagramme ternaire. Pour cela, nous avons choisi le diagramme des sous-compositions $(A,C,E)$ dont l'ACP a révélé qu'il pouvait montrer les observations plus réparties et nous avons centré les données. Finalement, on constate que chaque classe est caractérisée par une composante : dans la première classe, les observations ont une valeur de E au-dessus de la moyenne géométrique, dans la deuxième classe, c'est le constructeur A qui a une valeur supérieure à la moyenne géométrique et enfin dans la troisième classe, c'est le constructeur C qui a une valeur supérieure à la moyenne géométrique.    
+
+```{r, representation des classes, fig.width = 9, fig.height=4, fig.cap = "Représentation des trois groupes détectés dans le graphique des séries temporelles (à gauche) et dans le diagramme ternaire centré",fig.align="center"}
+par(las = 1, mar = c(3, 4, 1, 1), mfrow = c(1, 2))
+plot(Y_s_zoo, screens = 1, col = my_col, lwd = 2,
+     ylab = "Market share automobile", xlab = "Time", ylim = c(0, 0.5))
+legend("topleft", legend = c("A", "B", "C", "D", "E"), lty = 1, col = my_col,
+       horiz = T, cex = 0.75, lwd = 2)
+abline(v = BDDSegX[c(60, 99), "Date"], lty = 2, col = "red")
+my_col_2 <- hcl(h = hues, l = 65, c = 100)[1:3]
+lines(BDDSegX[c(1, 60), "Date"], c(0, 0), lwd = 4, col = my_col_2[3])
+lines(BDDSegX[c(61, 99), "Date"], c(0, 0), lwd = 4, col = my_col_2[2])
+lines(BDDSegX[c(100, nrow(BDDSegX)), "Date"], c(0, 0), lwd = 4, col = my_col_2[1])
+
+plot(Y_s[, c(1, 3, 5)], center = T, col = my_col_2[clust])
+lines(Y_s[, c(1, 3, 5)])
+```
+
+
+## Détection des atypiques
+
+Jusqu'à présent, nous n'avons pas tenu compte de la présence d'observations atypiques. Nous présentons ici une méthode basé sur la méthode de sélection de composantes invariantes (ICS en anglais) qui permet de détecter ou non la présence d'atypiques. On utilise ici la fonction `ics.outlier()` de la librairie `ICSOutlier` [@ics], appliquée directement sur les coordonnées ilr du jeu de données sur les élections présidentielles. Cela permet de détecter les départements où un des candidats est sorti largement en tête. 
+
+```{r, ICS detection, fig.width = 10, fig.height = 5, fig.cap = "Détection des valeurs atypiques des élections présidentielles en utilisant la méthode ICS", fig.align="center", message = F, warning = F}
+library(ICSOutlier)
+my_ics <- ics2(ilr_a)
+icsOutlier <- ics.outlier(my_ics, level.dist = 0.05, mDist = 50, ncores = 1)
+op <- par(oma = c(1, 1, 1.4, 1), mar = c(3.3, 3.3, 1, 0.7),
+          las = 1, mgp = c(2.25, 1, 0), mfrow = c(1, 2))
+plot(icsOutlier@ics.distances, main = "",
+     pch = ifelse(icsOutlier@ics.distances > icsOutlier@ics.dist.cutoff, 16, 3),
+     xlab = "Observation Number", ylab = "ICS distances", cex.main = 2)
+abline(h = icsOutlier@ics.dist.cutoff)
+plot(comp_a, col = ifelse(icsOutlier@ics.distances > icsOutlier@ics.dist.cutoff,
+                          "red", "grey"))
+```
+
+
+
+# Traitement des zéros
+
+Cette section illustre les principales méthodes d'imputation présentées dans le Chapitre 5. Le package utilisé est `zcompositions` [@zcompositions]. On va reprendre le même jeu de données nommé `LPdataZM` utilisé dans le chapitre 5. 
+
+```{r, charger librairie traitement zero, message = F}
+library(zCompositions)
+data(LPdataZM)
+```
+
+Dans `R`, on distingue généralement les zéros des valeurs manquantes qui sont codées par `NA` (non available). On peut traiter les zéros séparément  des valeurs manquantes si on estime que la cause des zéros est différente de celle des valeurs manquantes. Par exemple, un zéro peut être dû à une présence tellement faible d'une composition qu'on n'a pas réussi à la mesurer, alors qu'une valeur manquante peut être due à une erreur de saisie.
+
+Dans un premier temps, on va s'intéresser aux données manquantes que nous allons traiter comme des données non compositionnelles avant de s'intéresser au problème des zéros.
+
+## Traitement des données manquantes 
+
+On peut représenter les différentes configurations des valeurs manquantes à l'aide de la fonction `zPatterns()`. Pour chaque ligne $i$ de la matrice imprimée, une cellule $(i,j)$ est coloriée pour indiquer que la variable $j$ est manquante dans cette configuration. Ainsi, dans l'exemple ci-après, la première ligne correspond à la configuration où aucune variable n'est manquante, alors que la seconde ligne correspond à la configuration où la variable Rb est manquante. La barre affichée sur chaque ligne $i$ correspond au nombre d'observations incluses dans la configuration $i$. Dans l'exemple ci-après, $65\%$ des observations appartiennent à la 1ère configuration, autrement dit, $65\%$ des observations n'ont aucune valeur manquante. Enfin, la barre associée à une colonne $j$ indique le nombre de valeurs manquantes observé dans la composante $j$. Dans cet exemple, on constate que seules les composantes Ni et Ba n'ont pas de valeurs manquantes alors que la composante Y est celle qui en présente le plus.   
+
+
+```{r, afficher configuration des missing, fig.width = 12,fig.height =5, fig.cap = "Configuration des valeurs manquantes par individu et variable", warning = F, fig.align="center"}
+zPatterns(LPdataZM, label = NA)
+```
+
+Il existe une large littérature sur le traitement de données manquantes et de nombreuses librairies R traitent le sujet (voir par exemple `missForest`, `DMwr`). Une première solution pour traiter les valeurs manquantes est d'utiliser des méthodes pour données non compositionnelles. Dans notre exemple, nous allons commencer par considérer les valeurs manquantes comme "Missing At Random" et les traiter sous leur forme non clôturées  en appliquant une méthode d'imputation basée sur les forêts aléatoires : 
+
+```{r, remplacement des missing}
+require("missForest")
+LPdataZM_nm <- missForest(LPdataZM)$ximp
+```
+
+
+## Traitement des zéros
+
+A présent, on représente les différentes configurations des zéros, et on ajoute dans le graphique les moyenne géométriques des compositions associées à chaque configuration avec l'option `show.means = TRUE`. Le nombre de zéros est trois fois plus importants que les valeurs manquantes. Par ailleurs, il existe des configurations où plusieurs composantes présentent plusieurs zéros à la fois (configuration 5 par exemple). 
+
+```{r, affichage configuration des zeros, fig.width = 12, fig.height =5, fig.cap = "Configuration des zéros par individu et variable", warning = F, fig.align="center"}
+zPatterns(LPdataZM_nm, label = 0, show.means = TRUE)
+```
+
+Dans un premier temps, nous allons supprimer la colonne Ni qui contient plus de $50\%$ de zéros.
+
+```{r, suppression de Ni}
+LPdataZM_nm <- LPdataZM_nm[, !(names(LPdataZM_nm) %in% "Ni")]
+```
+
+A présent, nous allons utiliser les différentes méthodes présentées dans le chapitre 5. Pour l'imputation multiplicative simple (fonction `multRepl()`), nous avons besoin de déterminer pour chaque composante, le seuil de détection. Pour cela, nous avons tout simplement choisi la valeur minimum strictement supérieur à 0.   
+
+```{r, methode multiplicative}
+dl <- apply(LPdataZM_nm, 2, function(x) min(x[x != 0]))
+LPdataZM_multRepl <- multRepl(LPdataZM_nm, label = 0, dl = dl)
+```
+
+
+Pour l'imputation multiplicative log-normale (fonction `multLN()`) :
+
+```{r, methode multiplicative log normale}
+LPdataZM_multLN <- multLN(LPdataZM_nm, label = 0, dl = dl)
+```
+
+Pour l'imputation par l'algorithme EM (fonction `lrEM()`) : 
+
+```{r, methode EM}
+LPdataZM_lrEM <- lrEM(LPdataZM_nm, label = 0, dl = dl)
+```
+
+**Remarque** : dans le package `robCompositions`, on notera les fonctions `impKNNa()`, `impCoda()` qui permettent également `de faire de l'imputation
+
+
+# Régression compositionnelle
+
+Dans cette section, nous allons illustrer les outils présentés dans le Chapitre 8. 
+
+
+## Régression avec variable explicative compositionnelle 
+
+Nous allons utilisées les données portant sur un échantillon de 7713 individus de nationalité chinoises (source : https://www.cpc.unc.edu/projects/china). Ici la variable dépendante est l'indice de masse corporelle et nous allons utiliser comme variables explicatives la composition journalière moyenne de calorie réparties en trois composantes : les protéines (variable `VC`), les lipides (variable `VF`), les glucides (variable `VP`). 
+
+La première opération est de construire la composition :
+
+```{r, data chinoises}
+data("CHNS11")
+CHNS11 <- CHNS11 %>%
+  rename(proteines = VC, lipides = VF, glucides = VP) 
+X_compo <- acomp(CHNS11[, c("proteines", "lipides", "glucides")])
+```
+
+On va représenter la variable $X$ dans un diagramme ternaire et représenter les points conditionnellement à la variable $Y$ découpée selon les classes suivantes : 
+
+* inférieur à 18.5 : sous-poids
+* de 18.5 à 25 : poids normal
+* de 25 à 30 :	surpoids
+* de 30 à 35 :	obésité modérée
+* supérieur à 35 : obésité sévère
+
+D'après la figure, il n'est pas évident de déceler des différences de distribution de la variable de composition selon les différentes classes de $Y$. 
+
+```{r, ternary diagram conditionnelle data chinoises, fig.width = 7, fig.height = 4, fig.cap = "Diagramme ternaire de la variable $X$ conditionnellement à la variable dépendante découpée en classe", fig.align="center"}
+bk <- c(0, 18.5, 25, 30, 35, 100)
+ind <- findInterval(CHNS11$BMI, bk, all.inside = TRUE)
+CHNS11$class_Y <- factor(
+  c("sous-poids", "normal", "surpoids", "obesite", "obesite_plus")[ind], 
+  levels = c("sous-poids", "normal", "surpoids", "obesite", "obesite_plus"))
+ggtern(data = CHNS11, mapping = aes(x = proteines, y = lipides, z = glucides)) +
+  geom_point(mapping = aes(colour = class_Y)) +
+  facet_wrap(~ class_Y)
+```
+
+Nous allons à présent appliquer un modèle de régression en expliquant la variable $Y$ par les coordonnées ILR de la variable $X$ :
+
+```{r, regression X compo}
+ilr_nutrition <- ilr(X_compo)
+ilr1 <- ilr_nutrition[, 1]
+ilr2 <- ilr_nutrition[, 2]
+lm_1 <- lm(BMI ~ ilr1 + ilr2, data = CHNS11)
+summary(lm_1)
+```
+
+L'analyse des résidus (non présenté ici, mais qui s'obtient avec `plot(lm_1)`) montrerait que l'espérance des erreurs est nulle et la variance constante, mais l'hypothèse de normalité est clairement rejetée à cause de certains résidus ayant une valeur trop élevée. Le $R^2$ est très faible ce qui est confirme que notre modèle n'est pas bon; cependant, nous avons choisi cet exemple à titre illustratif. Pour transformer les coefficients dans l'espace CLR, on utilise la fonction `ilr2clr()`, qui montre que l'opposition entre les proétines et les lipides est importante dans l'explication du BMI :
+
+```{r, coeff regression dans CLR}
+ilr2clr(coef(lm_1)[-1])
+```
+
+
+
+Enfin, on s'intéresse à la représentation des prédictions, d'abord dans l'espace ILR, puis ensuite dans le simplexe. Ainsi, on observe que plus la composante protéines est forte au détriment des lipides, plus la valeur prédite $\hat Y$ sera forte. 
+
+```{r, prediction quand X compo, fig.width = 8, fig.height = 4, fig.cap = "Représentation des prédictions où $X$ est d'abord représenté dans l'espace ILR, puis dans l'espace du simplexe", fig.align="center"}
+pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
+seq_ilr <-  expand.grid(ilr1 = seq(-3, 3, length.out = 100),
+                        ilr2 = seq(-3, 3, length.out = 100))
+Y_pred <- predict(lm_1, newdata = 
+    data.frame(ilr1 = seq_ilr[, 1], ilr2 = seq_ilr[, 2]))
+bk <- seq(min(Y_pred), max(Y_pred), length.out = 9)
+ind <- findInterval(Y_pred, bk, all.inside = TRUE)
+op <- par(mfrow = c(1, 2))
+# ilr 
+plot(seq_ilr[, 1], seq_ilr[, 2], col = pal1[ind],  
+     pch = 16, cex = 0.5, xlab = "ilr 1", ylab = "ilr 2")
+# simplex
+seq_simp <- ilrInv(seq_ilr)
+names(seq_simp) <- c("proteines", "lipides", "glucides")
+plot(seq_simp, col = pal1[ind],  pch = 16)
+
+decoup <- c("<=-23.03", "]23.03;23.49]", "]23.49;23.95]", 
+            "]23.95;24.40]", "]24.40;24.86]", "]24.86;25.32]", 
+            "]25.32;25.78]", ">25.78")
+legend("topleft", legend = decoup, cex = 0.6, title = "Y pred", 
+       fill = pal1)
+
+```
+
+## Régression avec variable dépendante compositionnelle 
+
+Nous allons reprendre ici l'exemple du chapitre 8. Nous allons expliquer les parts de marché automobile par les variables non compositionnelle PIB et diesel. Pour cela, nous allons mettre dans la formule de la fonction `lm()` la variable compositionnelle $Y$ dans l'espace ilr. En effet, il est possible de mettre une variable multidimensionnelle comme variable dépendante et dans ce cas l'objet retourné est de type `mlm`. 
+
+```{r, regression Y compo}
+lm_2 <- lm(ilr(Y_s) ~ PIB_Courant_t + TTC_Gazole, data = BDDSegX)
+```
+
+On peut appliquer un certain nombre de fonctions sur un objet de type `mlm` : par exemple, la fonction `coef()` retourne les estimations des paramètres obtenus. On va récupérer les coefficients dans l'espace CLR et les mettre dans un format exploitable pour ensuite représenter un diagramme en barre des coefficients CLR : 
+
+```{r, coeff regression dans CLR avec Y compo}
+my_coeff <- data.frame(
+  segments = c("A", "B", "C", "D", "E"),
+  as(t(ilr2clr(coef(lm_2)[-1, ])), "matrix")
+)
+```
+
+Il apparaît qu'une augmentation du PIB aura tendance à favoriser la part de marchés des constructeurs C, D et E au détriment du constructeur A essentiellement. Au contraire, une augmentation du prix du diesel a un impact positif sur les ventes du constructeur A et ce au détriment de tous les autres constructeurs.  
+
+```{r, barplot des coeff regression, fig.width = 8, fig.height=4, fig.cap = "Représentation des coefficients dans l'espace CLR", fig.align="center"}
+coeff_df <- pivot_longer(my_coeff, cols = 2:3, names_to = "variable",
+             values_to = "estimate")
+ggplot(coeff_df, aes(x = segments, y = estimate)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~variable, ncol = 5, scales = "free_y")
+```
+
+La fonction `anova()` permet de faire des tests en tenant compte du caractère multivariée. Cela nous permet de vérifier que les deux variables sont globalement significativement différentes de 0 dans l'espace ilr. 
+
+```{r, significativite des variables}
+anova(lm_2)
+```
+
+En revanche, il n'est pas possible d'appliquer la fonction `plot()` pour faire un diagnostique des résidus.  
+
+Enfin, on va représenter le graphique des prédictions des parts de marché en fonction de variables explicatives prises l'une après l'autre. Quand on fait varier l'une des variables explicatives entre les valeurs minimum et maximum observées, on fixe l'autre variable explicative à sa valeur médiane. 
+
+
+```{r, prediction plot quand Y compo, fig.width = 10, fig.height = 4, fig.cap = "Représentation des prédictions des parts de marché en fonction de variables quantitatives", fig.align="center"}
+# prediction quand PIB_Courant_t varie
+seq_PIB_Courant_t <- seq(min(BDDSegX$PIB_Courant_t), max(BDDSegX$PIB_Courant_t),
+                      length.out = 100) 
+pred_Y <- as(ilrInv(predict(lm_2, newdata = data.frame(
+  PIB_Courant_t = seq_PIB_Courant_t,
+  TTC_Gazole = median(BDDSegX$TTC_Gazole)
+))), "matrix")
+colnames(pred_Y) <- c("A", "B", "C", "D", "E")
+data_pred_1 <- data.frame(pred_Y, x = seq_PIB_Courant_t)
+# prediction quand gazole varie
+seq_TTC_Gazole <- seq(min(BDDSegX$TTC_Gazole), max(BDDSegX$TTC_Gazole), 
+                      length.out = 100) 
+pred_Y <- as(ilrInv(predict(lm_2, newdata = data.frame(
+  PIB_Courant_t = median(BDDSegX$PIB_Courant_t),
+  TTC_Gazole = seq_TTC_Gazole 
+))), "matrix")
+colnames(pred_Y) <- c("A", "B", "C", "D", "E")
+data_pred_2 <- data.frame(pred_Y, x = seq_TTC_Gazole)
+# Merge des deux predictions 
+pred_lg <- rbind(
+  data.frame(variable = "PIB",
+     pivot_longer(data_pred_1, cols = 1:5, names_to = "segments", 
+                  values_to = "estimate")),
+  data.frame(variable = "Gazole",
+     pivot_longer(data_pred_2, cols = 1:5, names_to = "segments", 
+                  values_to = "estimate"))
+)
+ggplot(pred_lg, aes(x = x, y = estimate, colour = segments)) +
+  geom_line() +
+  facet_wrap(~variable, ncol = 5, scales = "free")
+```
+
