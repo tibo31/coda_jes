@@ -37,7 +37,7 @@ install.packages(c(
   "tidyverse", # univers tidyverse 
   "xtable",     # exporter sous forme de table latex
   "easyCODA",    # analyse univariee et multivariee pour CoDa
-  "zcompositions", # traitement des valeurs manquantes
+  "zCompositions", # traitement des valeurs manquantes
   "RColorBrewer" # palette de couleurs
  ))
 devtools::install_github("tibo31/codareg")
