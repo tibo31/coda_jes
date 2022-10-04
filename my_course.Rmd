@@ -248,12 +248,11 @@ Afin de comparer les variables entre elles, on peut également représenter une 
 
 
 ```{r, boxplot de chaque part, fig.width = 12, fig.height = 4, message = F, fig.cap = "Boîte à moustache des parts prises une à une", fig.align="center"}
-par(mfrow = c(1, 12), las = 1, mar = c(0, 2, 0, 2))
-res <- sapply(vote_share_1, function(x) {
-  res <- boxplot(x, ylim = c(0, 70))
-  length(res$out)
-  })
+ggplot(vote_share_long) +
+  geom_boxplot(aes_string("candidat","share"))+
+  theme_bw()
 ```
+
 ```{r, results='asis'}
 print(xtable::xtable(t(as.table(res)),  
   caption = "Nombre de valeurs extrêmes, détecté sur chaque boîte à moustache"),
