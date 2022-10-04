@@ -4,17 +4,17 @@ author: "Thibault Laurent"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 bibliography: bibliography.bib
 output :
-  pdf_document:
-    number_sections: yes
-    toc: yes
-    toc_depth: 2
-    keep_tex: yes
   rmdformats::html_clean:
     toc: true
     toc_depth: 2
     number_sections: true
     fig_caption: true
     template: flatly
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    keep_tex: yes
 ---
 <link href="markdown7.css" rel="stylesheet">
 
@@ -36,7 +36,9 @@ install.packages(c(
   "sf", # données spatiales
   "tidyverse", # univers tidyverse 
   "xtable",     # exporter sous forme de table latex
-  "easyCODA"    # analyse univariee et multivariee pour CoDa
+  "easyCODA",    # analyse univariee et multivariee pour CoDa
+  "zcompositions", # traitement des valeurs manquantes
+  "RColorBrewer" # palette de couleurs
  ))
 devtools::install_github("tibo31/codareg")
 ```
@@ -83,8 +85,6 @@ colnames(vote_share_1) <- c("Macron", "Le_Pen", "Mélenchon", "Zemmour",
   "Poutou", "Arthaud")
 ```
 
-
-
 Une deuxième façon de construire les données de composition est d'inclure une 13ème variable correspondant à la somme des votes blanc, des votes nuls et l'abstention et de considérer à présent le rapport "nombre de voix" sur "nombre d'inscrits" (au lieu de "nombre de voix" sur "nombre d'exprimés"). Pour faire cela, on crée dans un premier temps cette nouvelle variable `non_exprimes`:
 
 ```{r, crer variable exprimes}
@@ -126,7 +126,7 @@ Dans cette section, nous proposons d'utiliser dans un premier les fonctions de b
 
 ## Espace des individus
 
-Dans un premier temps, on va essayer de représenter la répartition des votes département par département. Une première façon de faire est de faire soit un diagramme en barre, soit un graphique des parts Pour cela, on va utiliser le package `ggplot2` qui appartient au consortium `tidyverse`. Il faut dans un premier temps rendre les données `tidy`, dans le sens où le jeu de données doit avoir les colonnes suivantes : une colonne pour le nom des départements, une colonne pour le nom des candidats et enfin une colonne pour le score obtenu par le couple département/candidat. On réalise cette opération à l'aide de la fonction `pivot_longer()` (car on transforme les données dans le format long) :  
+Dans un premier temps, on va essayer de représenter la répartition des votes département par département. Une première façon de faire est de faire soit un diagramme en barre, soit un graphique des parts. Pour cela, on va utiliser le package `ggplot2` qui appartient au consortium `tidyverse`. Il faut dans un premier temps rendre les données `tidy`, dans le sens où le jeu de données doit avoir les colonnes suivantes : une colonne pour le nom des départements, une colonne pour le nom des candidats et enfin une colonne pour le score obtenu par le couple département/candidat. On réalise cette opération à l'aide de la fonction `pivot_longer()` (car on transforme les données dans le format long) :  
 
 ```{r, transformer data format long, message = F}
 library("tidyverse")
@@ -266,6 +266,26 @@ On notera également la fonction `DOT()` du package `easyCODA` [@easyCODA] qui p
 library(easyCODA)
 DOT(vote_share_1)
 ```
+Parmi les outils présentés dans le chapitre 4, on présente également le graphique de confiance de $95\%$ :
+
+```{r, graphique de confiance, fig.width = 10, fig.height = 5, fig.cap = "Graphique de confiance", fig.align="center", message = F}
+plotdata <- vote_share_long %>%
+  st_drop_geometry() %>%
+  select(candidat, share)  %>%
+  group_by(candidat) %>%
+  summarize(mean = mean(share),
+            ci_1 = quantile(share, 0.05),
+            ci_2 = quantile(share, 0.95))
+ggplot(plotdata, aes(x = candidat,
+                     y = mean, 
+                     colour = candidat)) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  geom_errorbar(aes(ymin = ci_1, 
+                    ymax = ci_2), 
+                width = .1)
+```
+
 
 On peut finalement représenter carte par carte, le score réalisé par chaque parti. Ici on utilise la librairie `mapsf` [@mapsf] pour faire une cartographie des scores réalisés par les trois premiers candidats. On utilise une palette de couleur différente selon le candidat; en revanche, on garde le même intervalle de discrétisation pour chaque carte, afin que la luminosité soit la même d'une carte à une autre.
 
@@ -299,6 +319,73 @@ On arrive à des observations très différentes : dans le premier graphique, on
 
 
 **Exercice 2 :** utiliser les outils présentés dans cette section sur le jeu de données que vous avez choisi. 
+
+
+# Traitement des zéros
+
+Cette section illustre les principales méthodes d'imputation présentées dans le Chapitre 5. Le package utilisé est `zcompositions` [@zcompositions]. On va reprendre le même jeu de données nommé `LPdataZM` utilisé dans le chapitre 5. 
+
+```{r, charger librairie traitement zero, message = F}
+library(zCompositions)
+data(LPdataZM)
+```
+
+Dans `R`, on distingue généralement les zéros des valeurs manquantes qui sont codées par `NA` (non available). On peut traiter les zéros séparément  des valeurs manquantes si on estime que la cause des zéros est différente de celle des valeurs manquantes. Par exemple, un zéro peut être dû à une présence tellement faible d'une composition qu'on n'a pas réussi à la mesurer, alors qu'une valeur manquante peut être due à une erreur de saisie.
+
+Dans un premier temps, on va s'intéresser aux données manquantes que nous allons traiter comme des données non compositionnelles avant de s'intéresser au problème des zéros.
+
+## Traitement des données manquantes 
+
+On peut représenter les différentes configurations des valeurs manquantes à l'aide de la fonction `zPatterns()`. Pour chaque ligne $i$ de la matrice imprimée, une cellule $(i,j)$ est coloriée pour indiquer que la variable $j$ est manquante dans cette configuration. Ainsi, dans l'exemple ci-après, la première ligne correspond à la configuration où aucune variable n'est manquante, alors que la seconde ligne correspond à la configuration où la variable Rb est manquante. La barre affichée sur chaque ligne $i$ correspond au nombre d'observations incluses dans la configuration $i$. Dans l'exemple ci-après, $65\%$ des observations appartiennent à la 1ère configuration, autrement dit, $65\%$ des observations n'ont aucune valeur manquante. Enfin, la barre associée à une colonne $j$ indique le nombre de valeurs manquantes observé dans la composante $j$. Dans cet exemple, on constate que seules les composantes Ni et Ba n'ont pas de valeurs manquantes alors que la composante Y est celle qui en présente le plus.   
+
+
+```{r, afficher configuration des missing, fig.width = 12,fig.height =5, fig.cap = "Configuration des valeurs manquantes par individu et variable", warning = F, fig.align="center"}
+zPatterns(LPdataZM, label = NA)
+```
+
+Il existe une large littérature sur le traitement de données manquantes et de nombreuses librairies R traitent le sujet (voir par exemple `missForest`, `DMwr`). Une première solution pour traiter les valeurs manquantes est d'utiliser des méthodes pour données non compositionnelles. Dans notre exemple, nous allons commencer par considérer les valeurs manquantes comme "Missing At Random" et les traiter sous leur forme non clôturées  en appliquant une méthode d'imputation basée sur les forêts aléatoires : 
+
+```{r, remplacement des missing}
+require("missForest")
+LPdataZM_nm <- missForest(LPdataZM)$ximp
+```
+
+
+## Traitement des zéros
+
+A présent, on représente les différentes configurations des zéros, et on ajoute dans le graphique les moyenne géométriques des compositions associées à chaque configuration avec l'option `show.means = TRUE`. Le nombre de zéros est trois fois plus importants que les valeurs manquantes. Par ailleurs, il existe des configurations où plusieurs composantes présentent plusieurs zéros à la fois (configuration 5 par exemple). 
+
+```{r, affichage configuration des zeros, fig.width = 12, fig.height =5, fig.cap = "Configuration des zéros par individu et variable", warning = F, fig.align="center"}
+zPatterns(LPdataZM_nm, label = 0, show.means = TRUE)
+```
+
+Dans un premier temps, nous allons supprimer la colonne Ni qui contient plus de $50\%$ de zéros.
+
+```{r, suppression de Ni}
+LPdataZM_nm <- LPdataZM_nm[, !(names(LPdataZM_nm) %in% "Ni")]
+```
+
+A présent, nous allons utiliser les différentes méthodes présentées dans le chapitre 5. Pour l'imputation multiplicative simple (fonction `multRepl()`), nous avons besoin de déterminer pour chaque composante, le seuil de détection. Pour cela, nous avons tout simplement choisi la valeur minimum strictement supérieur à 0.   
+
+```{r, methode multiplicative}
+dl <- apply(LPdataZM_nm, 2, function(x) min(x[x != 0]))
+LPdataZM_multRepl <- multRepl(LPdataZM_nm, label = 0, dl = dl)
+```
+
+
+Pour l'imputation multiplicative log-normale (fonction `multLN()`) :
+
+```{r, methode multiplicative log normale}
+LPdataZM_multLN <- multLN(LPdataZM_nm, label = 0, dl = dl)
+```
+
+Pour l'imputation par l'algorithme EM (fonction `lrEM()`) : 
+
+```{r, methode EM}
+LPdataZM_lrEM <- lrEM(LPdataZM_nm, label = 0, dl = dl)
+```
+
+**Remarque** : dans le package `robCompositions`, on notera les fonctions `impKNNa()`, `impCoda()` qui permettent également `de faire de l'imputation
 
 
 # Les données de composition sous `R` # 
@@ -341,6 +428,46 @@ ggtern(data = geo_dep, mapping = aes(x = Macron, y = Le_Pen, z = Mélenchon)) +
 ```
 
 On citera comme alternative à la librairie `ggtern` et à la philosophie `ggplot2`, la jeune librairie `Ternary` [@ggtern] qui produit des diagrammes  ternaires intéressants. On verra que le package `compositions` permet aussi de réaliser des diagrammes  ternaires et notamment des matrices de diagrammes ternaires avec la fonction `plot.acomp()`. 
+
+**Remarque :** pour construire le triangle de Maxwell présenté dans le chapitre 1, on associe à chaque point du simplexe $(x_1,x_2,x_3)$ la couleur $(r=x_1,g=x_2,b=x_3)$ (dans ce cas particulier, les bordures sont autorisées car on n'a pas besoin d'appliquer des logarithmes). Pour représenter l'ensemble des couleurs possibles, on va d'abord créer une séquence de points dans le simplexe à l'aide de la fonction  `seq_simplex()` que nous avons créée. L'argument `nb_noeud` correspond au nombre de noeuds possible observé sur une arrête du diagramme ternaire. 
+
+```{r, fonction pour créer une séquence de nombre dans le simplexe}
+seq_simplex <- function(nb_noeud) {
+  interval <- seq(0, 1, length.out = nb_noeud)
+  res <- NULL
+  for(i in 1:nb_noeud) {
+    for(j in 1:(nb_noeud - i)) {
+      res <- rbind(res,
+                 c(x = 1 - interval[j] - interval[i], 
+                   y = interval[j], 
+                   z = interval[i]))
+    }
+  }
+  return(res[-nrow(res), ])
+}
+```
+
+Ensuite, on créé une couleur par point du triangle à l'aide de la fonction `rgb()` et on obtient le triangle de Maxwell : 
+
+```{r, triangle de Maxwell, fig.width = 4.5, fig.height = 4.5, message = F, fig.cap = "Triangle de Maxwell", fig.align="center"}
+my_data <- as.data.frame(seq_simplex(100))
+
+ggtern(data = my_data, mapping = aes(x = x, y = y, z = z)) +
+  geom_point(size = 1.5, col = rgb(my_data$x, my_data$y, my_data$z)) 
+```
+
+
+Enfin, dans le cas où les données sont temporelles, il est possible de joindre les observations par un trait. Ici, on reprend l'exemple des résultats des élections présidentielles depuis 1958; dans ce cas particulier, on doit d'abord transformer les données du format "long" au format "wide" avec l'option `pivot_wider()`. Ensuite, on ne sélectionne ici que trois partis et on joint les les points entre eux avec la fonction `geom_line()` :  
+
+```{r, diagramme ternaire sur données temporelles, fig.width = 4.5, fig.height = 4.5, message = F, fig.cap = "Diagramme ternaire sur des données temporelles", fig.align="center"}
+time_chart_wide <- pivot_wider(time_chart, 
+          names_from = parti, values_from = vote)
+ggtern(data = time_chart_wide,
+       mapping = aes(x = droite, y = gauche, z = extrême)) +
+  geom_point(size = 1.5) +
+  geom_line()
+```
+
 
 
 ## Le package `compositions` et la classe `acomp`
@@ -439,7 +566,10 @@ acompmargin(chimie_acomp_2, c("Cr", "B", "P", "V", "Cu"))
 On remarque que les vecteurs affichés ont un attribut appelé `acomp`. Cela implique qu'il ne s'agit  pas d'un vecteur "classique", mais un vecteur compositionnel. La conséquence est que les opérations de type `+`, `^`  appliqués sur cet objet ne seront pas celles de la géométrie euclidienne, mais celles de la géométrie d'Aitchison. Par exemple, l'opérateur `+` entre deux vecteurs de composition va appliquer l'opération de perturbation.  Ainsi, si on perturbe les deux premiers vecteurs de composition :
 
 ```{r, operateur perturbation}
-comp_a[1, ] + comp_a[2, ]
+a <- comp_a[1, ] 
+b <- comp_a[2, ]
+d <- a + b
+d
 ```
 
 Cela est équivalent à faire le produit entre les composantes de départ et de faire ensuite la clotûre :
@@ -447,21 +577,53 @@ Cela est équivalent à faire le produit entre les composantes de départ et de 
 ```{r, perturber en dehors de acomp}
 produit <- res_2022[1, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")] * 
   res_2022[2, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")]
-produit / sum(produit)
+d_bis <- produit / sum(produit)
+d_bis
 ```
 
-De même l'opérateur `*` correspond à l'opérateur puissance. Par exemple, on applique à la première observation la puissance 2 :
+De même l'opérateur `*` correspond à l'opérateur puissance. Par exemple, on applique à la première observation la puissance 1/2 :
 
 ```{r, operateur puissance}
-comp_a[1, ] * 2
+d * (1 / 2)
 ```
 
 ce qui est équivalent à faire :
 
 ```{r, puissance en dehors de acomp}
-power <- res_2022[1, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")] ^ 2 
+power <- d_bis ^ 0.5 
 power / sum(power)
 ```
+
+Il est possible de représenter directement les objets `acomp` dans un diagramme ternaire avec la fonction `plot.acomp()`. On représente troix exemples où on calcule la moyenne dans le simplexe entre deux compositions où l'une des deux est fixée alors que l'autre se rapproche d'un sommet. 
+
+```{r, plot acomp, fig.width = 12, fig.height = 4.5, fig.cap = "Illustration de la moyenne dans le simplexe de deux vecteurs de composition",fig.align="center"}
+par(mfrow = c(1, 3))
+b <- acomp(c(0.2, 0.5, 0.3))
+a1 <- acomp(c(0.4, 0.1, 0.5))
+plot(a1)
+plot(b, add = T)
+plot((a1 + b) * (1 / 2), add = T, pch = 16, col = "red")
+a2 <- acomp(c(0.4, 0.01, 0.59))
+plot(a2)
+plot(b, add = T)
+plot((a2 + b) * (1 / 2), add = T, pch = 16, col = "red")
+a3 <- acomp(c(0.4, 0.001, 0.599))
+plot(a3)
+plot(b, add = T)
+plot((a3 + b) * (1 / 2), add = T, pch = 16, col = "red")
+```
+
+De même, il est possible d'ajouter une ligne brisée associée à un jeu de données de type `acomp` avec la fonction `lines.acomp()`. Ici, on représente pour plusieurs valeurs de $k$, les compositions $k\odot d$, où $d$ est la moyenne dans le simplexe des vecteurs de composition $a$ et $b$ 
+
+```{r, plot acomp avec lines, fig.width = 4.5, fig.height = 4.5, fig.cap = "Illustration de la moyenne dans le simplexe de deux vecteurs de composition et représentation d'une droite",fig.align="center"}
+plot(a)
+plot(b, add = T)
+plot(d * (1 / 2), add = T, pch = 16, col = "red")
+lines(d * seq(-100, 100, length.out = 1000), lty = 2)
+```
+
+
+### Centrage des données
 
 Nous allons montrer ci-après un exemple d'utilisation de l'opérateur de perturbation. On considère la teneur en protéines, glucides, lipides de différents types de farine (source : Ciqual).
 
@@ -897,6 +1059,116 @@ legend("topleft", legend = decoup, cex = 0.8, title = "clr 3",
 par(op)
 ```
 
+### Transformation d'objets particuliers 
+
+On peut représenter des objets géométriques connus (une droite, un cercle, un carré, etc) dans l'un des espaces transformés et appliquer la transformation inverse pour voir l'équivalent dans le simplexe. 
+
+On va commencer par représenter plusieurs droites :
+
+```{r, transformation de droites dans le simplexe, echo = F, fig.width = 12, fig.height = 4, fig.cap = "Transformations de droites dans le simplexe lorsque l'espace initial est ilr et alr", fig.align="center"}
+my_pal <- RColorBrewer::brewer.pal(12, "Set3")
+par(mfrow = c(1, 3))
+# espace transforme
+x <- seq(-10, 10, length.out = 100)
+plot(x, x + 1, type = "l", xlim = c(-1, 1), ylim = c(-1, 1),
+     xlab = 'coord 1', ylab = 'coord 2', col = my_pal[1])
+lines(x, x, type = "l", col = my_pal[2])
+lines(x, x - 1, type = "l", col = my_pal[3])
+lines(x, -x + 1, type = "l", col = my_pal[4])
+lines(x, -x, type = "l", col = my_pal[5])
+lines(x, -x - 1, type = "l", col = my_pal[6])
+lines(rep(0, 100), seq(-10, 10, length.out = 100), col = my_pal[7])
+lines(rep(-1, 100), seq(-10, 10, length.out = 100), col = my_pal[8])
+lines(rep(1, 100), seq(-10, 10, length.out = 100), col = my_pal[9])
+lines(seq(-10, 10, length.out = 100), rep(0, 100), col = my_pal[10])
+lines(seq(-10, 10, length.out = 100), rep(-1, 100), col = my_pal[11])
+lines(seq(-10, 10, length.out = 100), rep(1, 100), col = my_pal[12])
+# ilr to simplexe
+plot(acomp(ilrInv(cbind(x, x + 1))), type = "l", col = my_pal[1], 
+     main = "ILR -> simplexe", labels = c("x1", "x2", "x3"))
+lines(acomp(ilrInv(cbind(x, x))), col = my_pal[2])
+lines(acomp(ilrInv(cbind(x, x - 1))), type = "l", col = my_pal[3])
+lines(acomp(ilrInv(cbind(x, -x + 1))), type = "l", col = my_pal[4])
+lines(acomp(ilrInv(cbind(x, -x))), type = "l", col = my_pal[5])
+lines(acomp(ilrInv(cbind(x, -x - 1))), type = "l", col = my_pal[6])
+lines(acomp(ilrInv(cbind(rep(0, 100), seq(-10, 10, length.out = 100)))), col = my_pal[7])
+lines(acomp(ilrInv(cbind(rep(-1, 100), seq(-10, 10, length.out = 100)))), col = my_pal[8])
+lines(acomp(ilrInv(cbind(rep(1, 100), seq(-10, 10, length.out = 100)))), col = my_pal[9])
+lines(acomp(ilrInv(cbind(seq(-10, 10, length.out = 100), rep(0, 100)))), col = my_pal[10])
+lines(acomp(ilrInv(cbind(seq(-10, 10, length.out = 100), rep(-1, 100)))), col = my_pal[11])
+lines(acomp(ilrInv(cbind(seq(-10, 10, length.out = 100), rep(1, 100)))), col = my_pal[12])
+# alr to simplexe
+plot(acomp(alrInv(cbind(x, x + 1))), type = "l", col = my_pal[1], 
+     main = "ALR -> simplexe", labels = c("x1", "x2", "x3"))
+lines(acomp(alrInv(cbind(x, x))), col = my_pal[2])
+lines(acomp(alrInv(cbind(x, x - 1))), type = "l", col = my_pal[3])
+lines(acomp(alrInv(cbind(x, -x + 1))), type = "l", col = my_pal[4])
+lines(acomp(alrInv(cbind(x, -x))), type = "l", col = my_pal[5])
+lines(acomp(alrInv(cbind(x, -x - 1))), type = "l", col = my_pal[6])
+lines(acomp(alrInv(cbind(rep(0, 100), seq(-10, 10, length.out = 100)))), col = my_pal[7])
+lines(acomp(alrInv(cbind(rep(-1, 100), seq(-10, 10, length.out = 100)))), col = my_pal[8])
+lines(acomp(alrInv(cbind(rep(1, 100), seq(-10, 10, length.out = 100)))), col = my_pal[9])
+lines(acomp(alrInv(cbind(seq(-10, 10, length.out = 100), rep(0, 100)))), col = my_pal[10])
+lines(acomp(alrInv(cbind(seq(-10, 10, length.out = 100), rep(-1, 100)))), col = my_pal[11])
+lines(acomp(alrInv(cbind(seq(-10, 10, length.out = 100), rep(1, 100)))), col = my_pal[12])
+```
+
+On s'intéresse à présenter à des cercles :
+
+```{r, transformation de cercles/ellipses dans le simplexe, echo = F, fig.width = 12, fig.height = 4, fig.cap = "Transformations de cercles et d'ellipses dans le simplexe lorsque l'espace initial est ilr et alr", fig.align="center"}
+# initialize a plot
+# prepare "circle data"
+radius = list(
+  c(0.5, 0.5),
+  c(1, 1),
+  c(0.5, 1),
+  c(1, 2)
+)
+center_xy <- list(
+  c(0, 0),
+  c(1, 2),
+  c(-1, 0)
+)
+par(mfrow = c(1, 3))
+plot(c(0, 1, -1), c(0, 2, 0), pch = 16, asp = 1, 
+     xlab = "coord 1", ylab = "coord 2", xlim = c(-2, 2), ylim = c(-1, 2))
+abline(h = 0, v = 0, lty = 2)
+theta = seq(0, 2 * pi, length = 200) # angles for drawing points around the circle
+
+# draw the circle/ellipse
+for (i in 1:length(radius)) {
+     for (j in 1:length(center_xy)) {
+       lines(x = radius[[i]][1] * cos(theta) + center_xy[[j]][1], 
+             y = radius[[i]][2] * sin(theta) + center_xy[[j]][2],
+             col = my_pal[(i - 1) * length(radius) + j])
+     }
+}
+
+# transformation dans le simplexe avec ilrInv
+plot(acomp(ilrInv(cbind(c(0, 1, -1), c(0, 2, 0)))), pch = 16, 
+     main = "ILR -> simplexe", labels = c("x1", "x2", "x3"))
+for (i in 1:length(radius)) {
+     for (j in 1:length(center_xy)) {
+       lines(acomp(ilrInv(cbind(radius[[i]][1] * cos(theta) + center_xy[[j]][1],
+                                radius[[i]][2] * sin(theta) + center_xy[[j]][2]))),
+             col = my_pal[(i - 1) * length(radius) + j])
+     }
+}
+
+# transformation dans le simplexe avec alrInv
+plot(acomp(alrInv(cbind(c(0, 1, -1), c(0, 1, 0)))), pch = 16, 
+     main = "ALR -> simplexe", labels = c("x1", "x2", "x3"))
+for (i in 1:length(radius)) {
+     for (j in 1:length(center_xy)) {
+       lines(acomp(alrInv(cbind(radius[[i]][1] * cos(theta) + center_xy[[j]][1],
+                                radius[[i]][2] * sin(theta) + center_xy[[j]][2]))),
+             col = my_pal[(i - 1) * length(radius) + j])
+     }
+}
+```
+
+
+
 ### Moyenne et Variance
 
 Avec les données de composition, le calcul des moyennes et de variances se font dans les espaces transformés. Quel que soit la transformation utilisée, on retrouve la même information; par exemple, si on calcule la moyenne au sens "classique" dans les trois espaces et on les re-transforme dans le simplexe, on retrouve le même résultat :
@@ -931,6 +1203,42 @@ var_s <- var(comp_a)
 ## Lois dans le simplexe
 
 Nous allons présenter ici quelques lois décrites dans le chapitre 7. 
+
+### Loi multinomiale 
+
+La fonction de base `rmultinom()` permet de simuler selon une loi $\mathcal{M}(p_1,\ldots, p_D, N)$ (l'argument `size` correspond au paramètre $N$ et l'argument `prob` au vecteur de probabilités). Par exemple, pour simuler 1000 observations distribuées selon une loi $\mathcal{M}(1/6,1/3,1/2, N=30)$, on procède ainsi :
+
+```{r, simuler une loi multinomiale}
+my_multi <- t(rmultinom(1000, size = 30, prob = c(1/6, 1/3, 1/2)))
+```
+
+Il peut toutefois y avoir des composantes avec des valeurs 0; dans notre exemple, il y en a `r length(which(apply(my_multi, 1, function(x) any(x == 0))))` que nous allons supprimer. Comme il y a de nombreuses valeurs qui sont dupliquées, nous allons les représenter avec une couleur différente selon le nombre de fois qu'elles apparaissent. La fonction `aggregate()` va nous permettre de récupérer toutes les valeurs distinctes et de calculer leur nombre :  
+
+```{r, aggreger les valeurs simulees}
+my_multi <- my_multi[-which(apply(my_multi, 1, function(x) any(x == 0))), ]
+my_multi_ag <- aggregate(rep(1, nrow(my_multi)), by = list(x1 = my_multi[, 1],
+                              x2 = my_multi[, 2],
+                              x3 = my_multi[, 3]), FUN = sum)
+```
+
+Finalement, on définit la palette de couleurs avec le package `RColorBrewer`: 
+
+```{r, plot de multinomiale, gig.width = 6, fig.height = 6, fig.cap = "Echantillon simulé selon une loi $M(1/6,1/3,1/2, N=30)$",fig.align="center"}
+pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
+bk <- seq(0, 45, by = 5)
+ind <- findInterval(my_multi_ag$x, bk, all.inside = TRUE)
+plot(acomp(my_multi_ag[, 1:3]), col = pal1[ind], pch = 16)
+plot(acomp(c(1/6, 1/3, 1/2)), pch = 15, cex = 1, col = "red", add = T)
+decoup <- c("<=5", "]5;10]", "]10;15]", "]15;20]", "]20;25]", "]25;30]",
+            "]30;35]", "]35;40]", ">40")
+legend("topleft", legend = decoup, cex = 0.8, title = "Nb points \n(sur 1000)", 
+       fill = pal1)
+```
+
+**Remarque :** la fonction $dmultinom()$ permet de calculer la fonction de densité associée à une composition.
+
+
+
 
 ### Loi normale dans le simplexe
 
@@ -1338,74 +1646,6 @@ plot(comp_a, col = ifelse(icsOutlier@ics.distances > icsOutlier@ics.dist.cutoff,
 ```
 
 **Exercice 4 :** utiliser les outils présentés dans cette section sur le jeu de données que vous avez choisi. 
-
-
-
-# Traitement des zéros
-
-Cette section illustre les principales méthodes d'imputation présentées dans le Chapitre 5. Le package utilisé est `zcompositions` [@zcompositions]. On va reprendre le même jeu de données nommé `LPdataZM` utilisé dans le chapitre 5. 
-
-```{r, charger librairie traitement zero, message = F}
-library(zCompositions)
-data(LPdataZM)
-```
-
-Dans `R`, on distingue généralement les zéros des valeurs manquantes qui sont codées par `NA` (non available). On peut traiter les zéros séparément  des valeurs manquantes si on estime que la cause des zéros est différente de celle des valeurs manquantes. Par exemple, un zéro peut être dû à une présence tellement faible d'une composition qu'on n'a pas réussi à la mesurer, alors qu'une valeur manquante peut être due à une erreur de saisie.
-
-Dans un premier temps, on va s'intéresser aux données manquantes que nous allons traiter comme des données non compositionnelles avant de s'intéresser au problème des zéros.
-
-## Traitement des données manquantes 
-
-On peut représenter les différentes configurations des valeurs manquantes à l'aide de la fonction `zPatterns()`. Pour chaque ligne $i$ de la matrice imprimée, une cellule $(i,j)$ est coloriée pour indiquer que la variable $j$ est manquante dans cette configuration. Ainsi, dans l'exemple ci-après, la première ligne correspond à la configuration où aucune variable n'est manquante, alors que la seconde ligne correspond à la configuration où la variable Rb est manquante. La barre affichée sur chaque ligne $i$ correspond au nombre d'observations incluses dans la configuration $i$. Dans l'exemple ci-après, $65\%$ des observations appartiennent à la 1ère configuration, autrement dit, $65\%$ des observations n'ont aucune valeur manquante. Enfin, la barre associée à une colonne $j$ indique le nombre de valeurs manquantes observé dans la composante $j$. Dans cet exemple, on constate que seules les composantes Ni et Ba n'ont pas de valeurs manquantes alors que la composante Y est celle qui en présente le plus.   
-
-
-```{r, afficher configuration des missing, fig.width = 12,fig.height =5, fig.cap = "Configuration des valeurs manquantes par individu et variable", warning = F, fig.align="center"}
-zPatterns(LPdataZM, label = NA)
-```
-
-Il existe une large littérature sur le traitement de données manquantes et de nombreuses librairies R traitent le sujet (voir par exemple `missForest`, `DMwr`). Une première solution pour traiter les valeurs manquantes est d'utiliser des méthodes pour données non compositionnelles. Dans notre exemple, nous allons commencer par considérer les valeurs manquantes comme "Missing At Random" et les traiter sous leur forme non clôturées  en appliquant une méthode d'imputation basée sur les forêts aléatoires : 
-
-```{r, remplacement des missing}
-require("missForest")
-LPdataZM_nm <- missForest(LPdataZM)$ximp
-```
-
-
-## Traitement des zéros
-
-A présent, on représente les différentes configurations des zéros, et on ajoute dans le graphique les moyenne géométriques des compositions associées à chaque configuration avec l'option `show.means = TRUE`. Le nombre de zéros est trois fois plus importants que les valeurs manquantes. Par ailleurs, il existe des configurations où plusieurs composantes présentent plusieurs zéros à la fois (configuration 5 par exemple). 
-
-```{r, affichage configuration des zeros, fig.width = 12, fig.height =5, fig.cap = "Configuration des zéros par individu et variable", warning = F, fig.align="center"}
-zPatterns(LPdataZM_nm, label = 0, show.means = TRUE)
-```
-
-Dans un premier temps, nous allons supprimer la colonne Ni qui contient plus de $50\%$ de zéros.
-
-```{r, suppression de Ni}
-LPdataZM_nm <- LPdataZM_nm[, !(names(LPdataZM_nm) %in% "Ni")]
-```
-
-A présent, nous allons utiliser les différentes méthodes présentées dans le chapitre 5. Pour l'imputation multiplicative simple (fonction `multRepl()`), nous avons besoin de déterminer pour chaque composante, le seuil de détection. Pour cela, nous avons tout simplement choisi la valeur minimum strictement supérieur à 0.   
-
-```{r, methode multiplicative}
-dl <- apply(LPdataZM_nm, 2, function(x) min(x[x != 0]))
-LPdataZM_multRepl <- multRepl(LPdataZM_nm, label = 0, dl = dl)
-```
-
-
-Pour l'imputation multiplicative log-normale (fonction `multLN()`) :
-
-```{r, methode multiplicative log normale}
-LPdataZM_multLN <- multLN(LPdataZM_nm, label = 0, dl = dl)
-```
-
-Pour l'imputation par l'algorithme EM (fonction `lrEM()`) : 
-
-```{r, methode EM}
-LPdataZM_lrEM <- lrEM(LPdataZM_nm, label = 0, dl = dl)
-```
-
-**Remarque** : dans le package `robCompositions`, on notera les fonctions `impKNNa()`, `impCoda()` qui permettent également `de faire de l'imputation
 
 
 # Régression compositionnelle
