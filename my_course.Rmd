@@ -4,17 +4,17 @@ author: "Thibault Laurent"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 bibliography: bibliography.bib
 output :
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    keep_tex: yes
   rmdformats::html_clean:
     toc: true
     toc_depth: 2
     number_sections: true
     fig_caption: true
     template: flatly
-  pdf_document:
-    number_sections: yes
-    toc: yes
-    toc_depth: 2
-    keep_tex: yes
 ---
 <link href="markdown7.css" rel="stylesheet">
 
@@ -244,8 +244,7 @@ xtable::xtable(t(sapply(vote_share_1, function(x)
   caption = "Statistique descriptive des parts de vote")
 ```
 
-Afin de comparer les variables entre elles, on peut également représenter une boîte à moustache par variable. A l'aide du code suivant, on affiche également le nombre de points aberrants au sens usuel de la statistique univariée (il s'agit des points au-dessus resp. au-dessous de la moustache supérieure resp. inférieure). 
-
+Afin de comparer les variables entre elles, on peut également représenter une boîte à moustache par variable.  
 
 ```{r, boxplot de chaque part, fig.width = 12, fig.height = 4, message = F, fig.cap = "Boîte à moustache des parts prises une à une", fig.align="center"}
 ggplot(vote_share_long) +
@@ -253,11 +252,6 @@ ggplot(vote_share_long) +
   theme_bw()
 ```
 
-```{r, results='asis'}
-print(xtable::xtable(t(as.table(res)),  
-  caption = "Nombre de valeurs extrêmes, détecté sur chaque boîte à moustache"),
-  size = "tiny")
-```
 
 On notera également la fonction `DOT()` du package `easyCODA` [@easyCODA] qui permet de représenter un "dot chart", c'est-à-dire un point par observation et par variable. 
 
@@ -431,7 +425,7 @@ On citera comme alternative à la librairie `ggtern` et à la philosophie `ggplo
 **Remarque :** pour construire le triangle de Maxwell présenté dans le chapitre 1, on associe à chaque point du simplexe $(x_1,x_2,x_3)$ la couleur $(r=x_1,g=x_2,b=x_3)$ (dans ce cas particulier, les bordures sont autorisées car on n'a pas besoin d'appliquer des logarithmes). Pour représenter l'ensemble des couleurs possibles, on va d'abord créer une séquence de points dans le simplexe à l'aide de la fonction  `seq_simplex()` que nous avons créée. L'argument `nb_noeud` correspond au nombre de noeuds possible observé sur une arrête du diagramme ternaire. 
 
 ```{r, fonction pour créer une séquence de nombre dans le simplexe}
-seq_simplex <- function(nb_noeud) {
+seq_simplex <- function(nb_noeud, zero = T) {
   interval <- seq(0, 1, length.out = nb_noeud)
   res <- NULL
   for(i in 1:nb_noeud) {
@@ -442,7 +436,11 @@ seq_simplex <- function(nb_noeud) {
                    z = interval[i]))
     }
   }
-  return(res[-nrow(res), ])
+  res <- res[-nrow(res), ]
+  if (!zero) {
+    res <- res[!apply(res, 1, function(x) any(x == 0)), ]
+  }
+  return(res)
 }
 ```
 
@@ -526,7 +524,7 @@ chimie_acomp <- acomp(chimie)
 chimie_acomp
 ```
 
-Nous verrons plus tard comment traiter spécifiquement ces zéros, mais à ce stade, il est déjà possible de les remplacer par la valeur $a \times l_d$, où $a$ est généralement pris égal à 2/3 et $l_d$ est la valeur de détection limite de la composante $d$. 
+On peut utiliser une des méthodes présentées dans le chapitre 5 pour remplacer ces zéros. Ici, on va simplement remplacer les zéros par la valeur $a \times l_d$, où $a$ est généralement pris égal à 2/3 et $l_d$ est la valeur de détection limite de la composante $d$. 
 
 ```{r, traiter les zeros}
 chimie_acomp_2 <- zeroreplace(chimie_acomp, d = rep(0.001, 7), a = 2/3)
@@ -538,7 +536,7 @@ Si on souhaite sélectionner des composantes sans faire la clotûre, on peut uti
 aplus(chimie_acomp_2, c("Ti", "Ni"))
 ```
 
-Enfin, si on souhaite faire l'amalgamation de ces deux composantes en une seule an prenant la somme arithmétique, on peut utiliser la fonction `totals()` :
+Enfin, si on souhaite faire l'amalgamation de ces deux composantes en une seule en prenant la somme arithmétique, on peut utiliser la fonction `totals()` :
 
 ```{r, amalagamer colonnes}
 totals(aplus(chimie_acomp_2, c("Ti", "Ni")))
@@ -597,19 +595,19 @@ Il est possible de représenter directement les objets `acomp` dans un diagramme
 
 ```{r, plot acomp, fig.width = 12, fig.height = 4.5, fig.cap = "Illustration de la moyenne dans le simplexe de deux vecteurs de composition",fig.align="center"}
 par(mfrow = c(1, 3))
-b <- acomp(c(0.2, 0.5, 0.3))
+b1 <- acomp(c(0.2, 0.5, 0.3))
 a1 <- acomp(c(0.4, 0.1, 0.5))
 plot(a1)
-plot(b, add = T)
-plot((a1 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a1 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 a2 <- acomp(c(0.4, 0.01, 0.59))
 plot(a2)
-plot(b, add = T)
-plot((a2 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a2 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 a3 <- acomp(c(0.4, 0.001, 0.599))
 plot(a3)
-plot(b, add = T)
-plot((a3 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a3 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 ```
 
 De même, il est possible d'ajouter une ligne brisée associée à un jeu de données de type `acomp` avec la fonction `lines.acomp()`. Ici, on représente pour plusieurs valeurs de $k$, les compositions $k\odot d$, où $d$ est la moyenne dans le simplexe des vecteurs de composition $a$ et $b$ 
@@ -647,7 +645,7 @@ ggtern(data = farine, mapping = aes(x = proteines, y = lipides, z = glucides)) +
   theme_rgbw()
 ```
 
-Une solution proposée par [@von2002understanding] est de centrer les données dans la géométrie d'Aitchison. Cela revient à calculer la moyenne géométrique puis d'appliquer l'opérateur perturbation sur chaque observation. 
+Une solution proposée par [@von2002understanding] est de centrer les données dans la géométrie d'Aitchison. Cela revient à calculer la moyenne dans le simplexe puis d'appliquer l'opérateur soustraction dans le simplexe sur chaque observation. 
 Pour calculer la moyenne géométrique, cela revient à calculer la moyenne en utilisant les opérateurs du simplexe ($\bar{x}=\frac{1}{n} \odot ({x_1} \oplus \ldots \oplus {x_n})$) :
 
 ```{r, centrer data farine}
@@ -790,7 +788,7 @@ sqrt(scalar(x-y, x-y))
 
 Les trois principaux types de transformation présentées dans le chapitre 3 s'obtiennent avec les fonctions `alr()` (pour *additive log ratio*), `clr()` (pour *centered log-ratio*) et `ilr()` (pour *isometric log-ratio*) et `alrinv()`, `clrinv()` et `ilrinv()` pour leurs inverses. Par ailleurs, les fonctions `ilr2clr()` et `clr2ilr()` permettent de passer d'une transformation à une autre.
 
-Par défaut, `alr()` utilise comme composition de référence la dernière de la liste. On peut changer la référence avec l'option `ivar`. Concernant la fonction `ilr()`, elle prend considère par défaut la matrice de contraste de Helmert, calculée avec la fonction `ilrBase()` et qui vaut : 
+Par défaut, `alr()` utilise comme composition de référence la dernière de la liste. On peut changer la référence avec l'option `ivar`. Concernant la fonction `ilr()`, elle prend considère par défaut la matrice de contraste du pivot (aussi appelée Helmert), calculée avec la fonction `ilrBase()` et qui vaut : 
 \begin{equation*}
 V = 
 \begin{pmatrix}
@@ -822,13 +820,7 @@ La transformation $clr(x)$ fait intervenir la moyenne géométrique de $x$ qui v
 ```{r, cartographie moyenne geometrique, echo = F, fig.width = 7, fig.height = 5, fig.cap = "Cartographie des valeurs de $g(x)$ dans le diagramme ternaire", fig.align="center"}
 seq_compo <- NULL
 pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
-for(i in seq(0.01, 0.99, 0.01)) {
-  for(j in seq(0.01, 0.99, 0.01)) {
-    if(1 - i - j > 0)
-    seq_compo <- rbind(seq_compo,
-                       c(i, j, 1 - i - j))
-  }
-}
+seq_compo <- as.data.frame(seq_simplex(100, zero = F))
 g_x <- (seq_compo[, 1] * seq_compo[, 2] * seq_compo[, 3]) ^ (1 / 3)
 # clr 1
 plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 1, 
@@ -1060,9 +1052,7 @@ par(op)
 
 ### Transformation d'objets particuliers 
 
-On peut représenter des objets géométriques connus (une droite, un cercle, un carré, etc) dans l'un des espaces transformés et appliquer la transformation inverse pour voir l'équivalent dans le simplexe. 
-
-On va commencer par représenter plusieurs droites :
+On peut représenter des objets géométriques connus (une droite, un cercle, un carré, etc) dans l'un des espaces transformés et appliquer la transformation inverse pour voir l'équivalent dans le simplexe. On va commencer par représenter plusieurs droites :
 
 ```{r, transformation de droites dans le simplexe, echo = F, fig.width = 12, fig.height = 4, fig.cap = "Transformations de droites dans le simplexe lorsque l'espace initial est ilr et alr", fig.align="center"}
 my_pal <- RColorBrewer::brewer.pal(12, "Set3")
@@ -1112,7 +1102,7 @@ lines(acomp(alrInv(cbind(seq(-10, 10, length.out = 100), rep(-1, 100)))), col = 
 lines(acomp(alrInv(cbind(seq(-10, 10, length.out = 100), rep(1, 100)))), col = my_pal[12])
 ```
 
-On s'intéresse à présenter à des cercles :
+On s'intéresse à présenter à des cercles et des ellipses :
 
 ```{r, transformation de cercles/ellipses dans le simplexe, echo = F, fig.width = 12, fig.height = 4, fig.cap = "Transformations de cercles et d'ellipses dans le simplexe lorsque l'espace initial est ilr et alr", fig.align="center"}
 # initialize a plot
@@ -1177,7 +1167,7 @@ mean_alr <- apply(alr_a, 2, mean)
 mean_ilr <- apply(ilr_a, 2, mean)
 mean_clr <- apply(clr_a, 2, mean) 
 alrInv(mean_alr)
-ilrInv(mean_ilr)
+ilrInv(mean_ilr, V = V)
 clrInv(mean_clr)
 ```
 
@@ -1211,32 +1201,26 @@ La fonction de base `rmultinom()` permet de simuler selon une loi $\mathcal{M}(p
 my_multi <- t(rmultinom(1000, size = 30, prob = c(1/6, 1/3, 1/2)))
 ```
 
-Il peut toutefois y avoir des composantes avec des valeurs 0; dans notre exemple, il y en a `r length(which(apply(my_multi, 1, function(x) any(x == 0))))` que nous allons supprimer. Comme il y a de nombreuses valeurs qui sont dupliquées, nous allons les représenter avec une couleur différente selon le nombre de fois qu'elles apparaissent. La fonction `aggregate()` va nous permettre de récupérer toutes les valeurs distinctes et de calculer leur nombre :  
+Il peut toutefois y avoir des composantes avec des valeurs 0; dans notre exemple, il y en a `r length(which(apply(my_multi, 1, function(x) any(x == 0))))`. Nous allons les conserver ici, mais il pourrait être utile de faire appel aux outils proposés dans le chapitre 5 pour remplacer les zéros. Comme il y a de nombreuses valeurs qui sont dupliquées, nous allons les représenter avec une couleur différente selon le nombre de fois qu'elles apparaissent. La fonction `aggregate()` va nous permettre de récupérer toutes les valeurs distinctes et de calculer leur nombre :  
 
 ```{r, aggreger les valeurs simulees}
-my_multi <- my_multi[-which(apply(my_multi, 1, function(x) any(x == 0))), ]
 my_multi_ag <- aggregate(rep(1, nrow(my_multi)), by = list(x1 = my_multi[, 1],
                               x2 = my_multi[, 2],
                               x3 = my_multi[, 3]), FUN = sum)
 ```
 
-Finalement, on définit la palette de couleurs avec le package `RColorBrewer`: 
+Finalement, on définit la palette de couleurs avec le package `RColorBrewer` et on tuilise la fonction `ggtern()` qui fera directement l'opération de clôture sur les données de comptage : 
 
 ```{r, plot de multinomiale, gig.width = 6, fig.height = 6, fig.cap = "Echantillon simulé selon une loi $M(1/6,1/3,1/2, N=30)$",fig.align="center"}
 pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
 bk <- seq(0, 45, by = 5)
 ind <- findInterval(my_multi_ag$x, bk, all.inside = TRUE)
-plot(acomp(my_multi_ag[, 1:3]), col = pal1[ind], pch = 16)
-plot(acomp(c(1/6, 1/3, 1/2)), pch = 15, cex = 1, col = "red", add = T)
-decoup <- c("<=5", "]5;10]", "]10;15]", "]15;20]", "]20;25]", "]25;30]",
-            "]30;35]", "]35;40]", ">40")
-legend("topleft", legend = decoup, cex = 0.8, title = "Nb points \n(sur 1000)", 
-       fill = pal1)
+
+ggtern(data = my_multi_ag, mapping = aes(x = x1, y = x2, z = x3)) +
+  geom_point(size = 1.5, col = pal1[ind])
 ```
 
-**Remarque :** la fonction $dmultinom()$ permet de calculer la fonction de densité associée à une composition.
-
-
+**Remarque :** la fonction $dmultinom()$ permet de calculer la fonction de densité d'une loi multinomiale lorsqu'on lui donne en entrée une donnée de comptage.
 
 
 ### Loi normale dans le simplexe
@@ -1374,7 +1358,31 @@ contour(dx, asp = 1, levels = quantile(
 par(opar)
 ```
 
-Enfin, on notera les fonctions `rAitchison()` et `dAitchison()` qui permettent de simuler et calculer la fonction de densité d'une loi d'Aitchison. 
+* Student : on va reprendre ici l'algorithme donné dans le chapitre 7 avec $\mu^*=(0,0)$, $\Sigma^*=\begin{pmatrix} 2 & -1.5 \\ -1.5 & 2 \end{pmatrix}$, $\nu=5$ et $V=\begin{pmatrix} -1/\sqrt{2} & -1/\sqrt{6} \\ 1/\sqrt{2} & -1/\sqrt{6} \\ 0 & 2/\sqrt{6} \end{pmatrix}$. On simule $\mathbf{Z}$:
+```{r, simuler Z}
+Z <- mvrnorm(n = 100, mu = c(0, 0), 
+        Sigma = matrix(c(2, -1.5, -1.5, 2), 2, 2))
+```
+On simule $u\sim \chi^2_\nu$:
+```{r, simuler u}
+u <- rchisq(1, df = 5)
+```
+On calcule $\mathbf{Y}=\sqrt{\nu/\mu}Z+\mu^*$
+```{r, simuler Y}
+Y <- sqrt(5 / u) * Z
+```
+On calcule l'ilr inverse de $\mathbf{Y}$
+```{r, simuler X}
+X <- ilrInv(Y)
+```
+Enfin, on représente les données dans le simplexe : 
+```{r, representation de donnees de Student, , fig.width = 5, fig.height = 5, fig.cap = "Données simulées seloin une loi de Student multivariée sur le simplexe",fig.align="center"}
+plot(X)
+```
+
+
+
+* On notera les fonctions `rAitchison()` et `dAitchison()` qui permettent de simuler et calculer la fonction de densité d'une loi d'Aitchison. 
 
 
 
@@ -1521,10 +1529,11 @@ Appliquer une méthode statistique sur une transformation ilr plutôt qu'une aut
 
 ### L'Analyse en Composantes Principales (ACP)
 
-Nous avons déjà vu la fonction `dist()` du package `compositions` qui, appliquée à un object `acomp`, calcule la distance d'Aitchison entre chaque paires d'individus. 
+Nous avons déjà vu la fonction `dist()` du package `compositions` qui, appliquée à un object `acomp`, calcule la distance d'Aitchison entre chaque paires d'individus. On peut tout aussi bien calculer la distance euclidienne sur les données transformées dans l'espace clr par exemple : 
 
 ```{r, matrice de distance entre individus}
-dist_market <- dist(Y_s)
+clr_market <- clr(Y_s)
+dist_market <- dist(clr_market)
 ```
 
 Une fois la matrice de distance calculée, il est possible d'utiliser la fonction `cmdscale()` qui permet de réaliser un échelonnement muldimensionnel (présenté au chapitre 4) dont on peut représenter la projection sur les deux composantes choisies. On peut ajouter les CLR comme variables supplémentaires en utilisant leurs coefficients de régression sur
@@ -1537,7 +1546,6 @@ y <- mds[, 2]
 plot(x, y, pch = 16, cex = 0.7, xlab = "", ylab = "", main = "",
      xlim = c(-1, 1), ylim = c(-1, 1), asp = 1)
 abline(h = 0, v = 0, lty = 2)
-clr_market <- clr(Y_s)
 for(k in 1:5) {
   coeff_clr <- coefficients(lm(clr_market[, k] ~ x + y -1))
   points(coeff_clr[1], coeff_clr[2], col = "red", pch = 15)
@@ -1545,7 +1553,7 @@ for(k in 1:5) {
 }
 ```
 
-En vérité, le biplot est majoritairement utilisé pour illustrer le résultat de l'analyse en composantes principales (ACP). Pour les données de composition, l'ACP est effectuée sur les coordonnées clr. Pour cela, on peut utiliser directement la fonction `princomp()` sur un objet `acomp`, ensuite la fonction `biplot()` permet de représenter la projection des individus et des variables sur les deux premières composantes de l'ACP. Par ailleurs, nous avons également utilisé la fonction `screeplot()` qui permet de représenter la variance expliquée par chaque axe de l'ACP et qui nous confirme ici que deux axes sont probablement suffisants :
+Le biplot est majoritairement utilisé pour illustrer le résultat de l'analyse en composantes principales (ACP). Pour les données de composition, l'ACP est effectuée sur les coordonnées clr. Pour cela, on peut utiliser directement la fonction `princomp()` sur un objet `acomp`, ensuite la fonction `biplot()` permet de représenter la projection des individus et des variables sur les deux premières composantes de l'ACP. Par ailleurs, nous avons également utilisé la fonction `screeplot()` qui permet de représenter la variance expliquée par chaque axe de l'ACP et qui nous confirme ici que deux axes sont probablement suffisants :
 
 ```{r, biplot sur ACP, fig.width = 10, fig.height = 5, fig.cap = "Biplot obtenu après une ACP réalisée sur les coordonnées CLR", fig.align="center"}
 pca <- princomp(Y_s)
@@ -1563,7 +1571,7 @@ A partir de ces longueurs, on peut faire les remarques suivantes :
 
 * si la longueur entre deux composantes est grande, le log-ratio entre les deux parts est volatile. De plus, si on observe trois rayons orientés vers des directions différentes à 120 degrès environ (par exemple $\bar{OA}$, $\bar{OC}$ et $\bar{OE}$) et avec de fortes longueurs, alors le diagramme ternaire des trois sous-composition aura des points éparpillés dans le triangle.    
 
-* les angles entre les connections doivent approximer la corrélation entre les log-ration 
+* les angles entre les connections doivent approximer la corrélation entre les log-ratio
     + si deux connections sont perpendiculaires, alors les deux log-ratio ne sont pas corrélées (par exemple $\log(\frac{C}{B})$ et $\log{\frac{D}{E}}$) 
     + si trois composantes sont parfaitement alignées, alors les log-ratio sont fortement corrélés (dans notre exemple, B, D et E). Dans ce cas, une représentation de ces sous-composition devraient former une forme sur une seule dimension, autrement dit, ces sous-compositions sont colinéaires. 
 
@@ -1597,7 +1605,7 @@ PLOT.LRA(LRA(cups, weight = TRUE), main = "LRA pondéré")
 
 ### Classification sur les individus
 
-Il est possible d'appliquer une méthode de classification à partir de la projection des observations obtenus à l'aide de la MDS ou de l'ACP. Prenons par exemple les coordonnées des observations obtenus dans la MDS. On applique ici une classification à partir de l'algorithme  des $K$-means (voir par exemple https://www.math.univ-toulouse.fr/~sdejean/PDF/stat_multidim_sdejean.pdf pour plus de détails). Cette méthode est implémentée dans la fonction `kmeans()`. Contrairement à la classification ascendante hiérarchique, l'utilisateur doit spécifier le nombre de classes choisies. Ici, l'analyse des biplot précédents laisse suggérer une répartition des observations en trois groupes.    
+Il est possible d'appliquer une méthode de classification sur les individus à partir de la projection des observations obtenus à l'aide de la MDS ou de l'ACP. Prenons par exemple les coordonnées des observations obtenus dans la MDS. On applique ici une classification à partir de l'algorithme  des $K$-means (voir par exemple https://www.math.univ-toulouse.fr/~sdejean/PDF/stat_multidim_sdejean.pdf pour plus de détails). Cette méthode est implémentée dans la fonction `kmeans()`. Contrairement à la classification ascendante hiérarchique, l'utilisateur doit spécifier le nombre de classes choisies. Ici, l'analyse des biplot précédents laisse suggérer une répartition des observations en trois groupes.    
 
 ```{r, k-means}
 clust <- kmeans(mds, 3)$cluster %>%
@@ -1802,3 +1810,4 @@ ggplot(pred_lg, aes(x = x, y = estimate, colour = segments)) +
   facet_wrap(~variable, ncol = 5, scales = "free")
 ```
 
+On citera le package `codareg` (en cours de développement) qui permet de calculer les elasticités pour chaque individu et de faire des résumés avec ces elesticités. 

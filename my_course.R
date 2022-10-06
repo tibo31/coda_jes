@@ -1,4 +1,4 @@
-## ---- install packages, eval = F--------------------------------------------------------------
+## ---- install packages, eval = F------------------------------------------
 ## install.packages(c(
 ##   "compositions", # librairie dédiée à l'analyse de données de compositions
 ##   "missForest", # traiter les données manquantes non compo
@@ -8,69 +8,69 @@
 ##   "tidyverse", # univers tidyverse
 ##   "xtable",     # exporter sous forme de table latex
 ##   "easyCODA",    # analyse univariee et multivariee pour CoDa
-##   "zcompositions", # traitement des valeurs manquantes
+##   "zCompositions", # traitement des valeurs manquantes
 ##   "RColorBrewer" # palette de couleurs
 ##  ))
 ## devtools::install_github("tibo31/codareg")
 
 
-## ---- charger une librairie-------------------------------------------------------------------
+## ---- charger une librairie-----------------------------------------------
 library("readxl")
 
 
-## ---- importer data localement, eval = F------------------------------------------------------
+## ---- importer data localement, eval = F----------------------------------
 ## my_url <- "https://www.data.gouv.fr/fr/datasets/r/48a38a25-9e46-4d83-80db-947258df9409"
 ## download.file(my_url, destfile = paste0(getwd(), "/res_2022.xlsx"))
 
 
-## ---- lire data-------------------------------------------------------------------------------
+## ---- lire data-----------------------------------------------------------
 res_2022 <- read_excel("res_2022.xlsx")
 class(res_2022)
 
 
-## ---- afficher structure data-----------------------------------------------------------------
+## ---- afficher structure data---------------------------------------------
 str(res_2022)
 
 
-## ---- extraire colonnes data------------------------------------------------------------------
+## ---- extraire colonnes data----------------------------------------------
 vote_share_1 <- res_2022[ , c("Macron_EXP", "Le Pen_EXP", "Mélenchon_EXP",
  "Zemmour_EXP", "Pécresse_EXP", "Jadot_EXP", "Lassalle_EXP", "Roussel_EXP",
  "Dupont-Aignan_EXP", "Hidalgo_EXP", "Poutou_EXP", "Arthaud_EXP")]
 
 
-## ---- changer nom data------------------------------------------------------------------------
+## ---- changer nom data----------------------------------------------------
 colnames(vote_share_1) <- c("Macron", "Le_Pen", "Mélenchon", "Zemmour", 
   "Pécresse", "Jadot", "Lassalle", "Roussel", "Dupont_Aignan", "Hidalgo",
   "Poutou", "Arthaud")
 
 
-## ---- crer variable exprimes------------------------------------------------------------------
+## ---- crer variable exprimes----------------------------------------------
 res_2022$non_exprimes <- res_2022$Abstentions + res_2022$Blancs +
   res_2022$Nuls
 
 
-## ---- extraire data comptage------------------------------------------------------------------
+## ---- extraire data comptage----------------------------------------------
 vote_share_2 <- res_2022[ , c("Macron_VOIX", "Le Pen_VOIX", 
   "Mélenchon_VOIX", "Zemmour_VOIX", "Pécresse_VOIX", "Jadot_VOIX",
   "Lassalle_VOIX", "Roussel_VOIX", "Dupont-Aignan_VOIX", "Hidalgo_VOIX",
   "Poutou_VOIX", "Arthaud_VOIX", "non_exprimes")]
 
 
-## ---- creer nouvelle variable-----------------------------------------------------------------
+## ---- creer nouvelle variable---------------------------------------------
 vote_share_2 <- sapply(vote_share_2, function(x) x / res_2022$Inscrits)
 
 
-## ---- recoder nom data------------------------------------------------------------------------
+## ---- recoder nom data----------------------------------------------------
 colnames(vote_share_2) <- c("Macron", "Le_Pen", "Mélenchon", "Zemmour",
   "Pécresse", "Jadot",  "Lassalle", "Roussel", "Dupont_Aignan", "Hidalgo",
   "Poutou", "Arthaud", "non_inscrits")
 
 
-## ---- eval = F--------------------------------------------------------------------------------
+## ---- eval = F------------------------------------------------------------
 ## data(package = "compositions")
 
 
-## ---- transformer data format long, message = F-----------------------------------------------
+## ---- transformer data format long, message = F---------------------------
 library("tidyverse")
 vote_share_long <- pivot_longer(data.frame(vote_share_1, 
                                            dep = res_2022$DEP_NOM), 
@@ -88,12 +88,12 @@ vote_share_long %>%
   theme(axis.text.x = element_text(angle = 90))
 
 
-## ---- package spatial, message = F------------------------------------------------------------
+## ---- package spatial, message = F----------------------------------------
 library("sf")
 source("spatial/spatial_circon.R")
 
 
-## ---- merge data spatial----------------------------------------------------------------------
+## ---- merge data spatial--------------------------------------------------
 geo_dep <- merge(geo_dep[, c("nom_dpt", "code_dpt", "nom_reg")], 
      data.frame(vote_share_1, dep = res_2022$DEP_CODE, 
                 Inscrits = res_2022$Inscrits), 
@@ -111,7 +111,7 @@ vote_share_long %>%
   facet_grid(. ~ nom_reg, scales = "free_x", space = "free") 
 
 
-## ---- historique election presidentielles-----------------------------------------------------
+## ---- historique election presidentielles---------------------------------
 time_chart <- data.frame(
   year = rep(as.Date(c("1958-01-01", "1965-01-01", "1969-01-01", "1974-01-01", 
       "1981-01-01", "1988-01-01", "1995-01-01", "2002-01-01", "2007-01-01", 
@@ -145,11 +145,11 @@ plot(geo_dep[, "vainqueur"], main = "", key.pos = 1,
      key.width = lcm(1.3), key.length = .7)
 
 
-## ---- option xtable, echo = F-----------------------------------------------------------------
+## ---- option xtable, echo = F---------------------------------------------
 options(xtable.comment = FALSE)
 
 
-## ---- convertir dans une table latex, results='asis'------------------------------------------
+## ---- convertir dans une table latex, results='asis'----------------------
 xtable::xtable(t(sapply(vote_share_1, function(x) 
   c(min = min(x), q = quantile(x, 0.25), median = median(x), mean = mean(x),
     q = quantile(x, 0.75), max= max(x)))), 
@@ -157,16 +157,9 @@ xtable::xtable(t(sapply(vote_share_1, function(x)
 
 
 ## ---- boxplot de chaque part, fig.width = 12, fig.height = 4, message = F, fig.cap = "Boîte à moustache des parts prises une à une", fig.align="center"----
-par(mfrow = c(1, 12), las = 1, mar = c(0, 2, 0, 2))
-res <- sapply(vote_share_1, function(x) {
-  res <- boxplot(x, ylim = c(0, 70))
-  length(res$out)
-  })
-
-## ---- results='asis'--------------------------------------------------------------------------
-print(xtable::xtable(t(as.table(res)),  
-  caption = "Nombre de valeurs extrêmes, détecté sur chaque boîte à moustache"),
-  size = "tiny")
+ggplot(vote_share_long) +
+  geom_boxplot(aes_string("candidat","share"))+
+  theme_bw()
 
 
 ## ---- Dot Chart, fig.width = 18, fig.height = 4, message = F, fig.cap = "Dot chart des variables prises une à une", fig.align="center"----
@@ -216,7 +209,7 @@ plot(Macron ~ Le_Pen, data = vote_share_2,
      main = "Nombre de voix / nombre inscrits")
 
 
-## ---- charger librairie traitement zero, message = F------------------------------------------
+## ---- charger librairie traitement zero, message = F----------------------
 library(zCompositions)
 data(LPdataZM)
 
@@ -225,7 +218,7 @@ data(LPdataZM)
 zPatterns(LPdataZM, label = NA)
 
 
-## ---- remplacement des missing----------------------------------------------------------------
+## ---- remplacement des missing--------------------------------------------
 require("missForest")
 LPdataZM_nm <- missForest(LPdataZM)$ximp
 
@@ -234,20 +227,20 @@ LPdataZM_nm <- missForest(LPdataZM)$ximp
 zPatterns(LPdataZM_nm, label = 0, show.means = TRUE)
 
 
-## ---- suppression de Ni-----------------------------------------------------------------------
+## ---- suppression de Ni---------------------------------------------------
 LPdataZM_nm <- LPdataZM_nm[, !(names(LPdataZM_nm) %in% "Ni")]
 
 
-## ---- methode multiplicative------------------------------------------------------------------
+## ---- methode multiplicative----------------------------------------------
 dl <- apply(LPdataZM_nm, 2, function(x) min(x[x != 0]))
 LPdataZM_multRepl <- multRepl(LPdataZM_nm, label = 0, dl = dl)
 
 
-## ---- methode multiplicative log normale------------------------------------------------------
+## ---- methode multiplicative log normale----------------------------------
 LPdataZM_multLN <- multLN(LPdataZM_nm, label = 0, dl = dl)
 
 
-## ---- methode EM------------------------------------------------------------------------------
+## ---- methode EM----------------------------------------------------------
 LPdataZM_lrEM <- lrEM(LPdataZM_nm, label = 0, dl = dl)
 
 
@@ -275,8 +268,8 @@ ggtern(data = geo_dep, mapping = aes(x = Macron, y = Le_Pen, z = Mélenchon)) +
   facet_wrap(~ nom_reg)
 
 
-## ---- fonction pour créer une séquence de nombre dans le simplexe-----------------------------
-seq_simplex <- function(nb_noeud) {
+## ---- fonction pour créer une séquence de nombre dans le simplexe---------
+seq_simplex <- function(nb_noeud, zero = T) {
   interval <- seq(0, 1, length.out = nb_noeud)
   res <- NULL
   for(i in 1:nb_noeud) {
@@ -287,7 +280,11 @@ seq_simplex <- function(nb_noeud) {
                    z = interval[i]))
     }
   }
-  return(res[-nrow(res), ])
+  res <- res[-nrow(res), ]
+  if (!zero) {
+    res <- res[!apply(res, 1, function(x) any(x == 0)), ]
+  }
+  return(res)
 }
 
 
@@ -307,35 +304,35 @@ ggtern(data = time_chart_wide,
   geom_line()
 
 
-## ---- charger compositions, message = F-------------------------------------------------------
+## ---- charger compositions, message = F-----------------------------------
 library("compositions")
 comp_a <- acomp(res_2022[, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")])
 names(comp_a) <- c("Macron", "Le Pen", "Mélenchon")
 
 
-## ---- creer acomp-----------------------------------------------------------------------------
+## ---- creer acomp---------------------------------------------------------
 comp_b <- acomp(res_2022[, c("Macron_EXP", "Le Pen_EXP", "Mélenchon_EXP")])
 names(comp_b) <- c("Macron", "Le Pen", "Mélenchon")
 
 
-## ---- afficher acomp--------------------------------------------------------------------------
+## ---- afficher acomp------------------------------------------------------
 comp_a[1, ]
 comp_b[1, ]
 
 
-## ----  cloture--------------------------------------------------------------------------------
+## ----  cloture------------------------------------------------------------
 clo(c(1, 2, 3))
 
 
-## ---- afficher premieres lignes---------------------------------------------------------------
+## ---- afficher premieres lignes-------------------------------------------
 head(comp_a[, c("Macron", "Le Pen")])
 
 
-## ---- cenvertir acomp en matrix---------------------------------------------------------------
+## ---- cenvertir acomp en matrix-------------------------------------------
 head(as(comp_a[, c("Macron", "Le Pen")], "matrix"))
 
 
-## ---- creer donnees chimie--------------------------------------------------------------------
+## ---- creer donnees chimie------------------------------------------------
 chimie <- data.frame(Cr = c(27.50, 30.40, 25.60), 
                      B = c(17, 23, 14), 
                      P = c(148, 433, 135),
@@ -347,67 +344,67 @@ chimie_acomp <- acomp(chimie)
 chimie_acomp
 
 
-## ---- traiter les zeros-----------------------------------------------------------------------
+## ---- traiter les zeros---------------------------------------------------
 chimie_acomp_2 <- zeroreplace(chimie_acomp, d = rep(0.001, 7), a = 2/3)
 
 
-## ---- extraire colonnes sans cloture----------------------------------------------------------
+## ---- extraire colonnes sans cloture--------------------------------------
 aplus(chimie_acomp_2, c("Ti", "Ni"))
 
 
-## ---- amalagamer colonnes---------------------------------------------------------------------
+## ---- amalagamer colonnes-------------------------------------------------
 totals(aplus(chimie_acomp_2, c("Ti", "Ni")))
 
 
-## ---- ajouter une composante------------------------------------------------------------------
+## ---- ajouter une composante----------------------------------------------
 acomp(
   cbind(aplus(chimie_acomp_2, c("Cr", "B", "P", "V", "Cu")),
       Ni_Ti = totals(aplus(chimie_acomp_2, c("Ti", "Ni"))))
 )
 
 
-## ---------------------------------------------------------------------------------------------
+## -------------------------------------------------------------------------
 acompmargin(chimie_acomp_2, c("Cr", "B", "P", "V", "Cu"))
 
 
-## ---- operateur perturbation------------------------------------------------------------------
+## ---- operateur perturbation----------------------------------------------
 a <- comp_a[1, ] 
 b <- comp_a[2, ]
 d <- a + b
 d
 
 
-## ---- perturber en dehors de acomp------------------------------------------------------------
+## ---- perturber en dehors de acomp----------------------------------------
 produit <- res_2022[1, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")] * 
   res_2022[2, c("Macron_VOIX", "Le Pen_VOIX", "Mélenchon_VOIX")]
 d_bis <- produit / sum(produit)
 d_bis
 
 
-## ---- operateur puissance---------------------------------------------------------------------
+## ---- operateur puissance-------------------------------------------------
 d * (1 / 2)
 
 
-## ---- puissance en dehors de acomp------------------------------------------------------------
+## ---- puissance en dehors de acomp----------------------------------------
 power <- d_bis ^ 0.5 
 power / sum(power)
 
 
 ## ---- plot acomp, fig.width = 12, fig.height = 4.5, fig.cap = "Illustration de la moyenne dans le simplexe de deux vecteurs de composition",fig.align="center"----
 par(mfrow = c(1, 3))
-b <- acomp(c(0.2, 0.5, 0.3))
+b1 <- acomp(c(0.2, 0.5, 0.3))
 a1 <- acomp(c(0.4, 0.1, 0.5))
 plot(a1)
-plot(b, add = T)
-plot((a1 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a1 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 a2 <- acomp(c(0.4, 0.01, 0.59))
 plot(a2)
-plot(b, add = T)
-plot((a2 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a2 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 a3 <- acomp(c(0.4, 0.001, 0.599))
 plot(a3)
-plot(b, add = T)
-plot((a3 + b) * (1 / 2), add = T, pch = 16, col = "red")
+plot(b1, add = T)
+plot((a3 + b1) * (1 / 2), add = T, pch = 16, col = "red")
 
 
 ## ---- plot acomp avec lines, fig.width = 4.5, fig.height = 4.5, fig.cap = "Illustration de la moyenne dans le simplexe de deux vecteurs de composition et représentation d'une droite",fig.align="center"----
@@ -417,7 +414,7 @@ plot(d * (1 / 2), add = T, pch = 16, col = "red")
 lines(d * seq(-100, 100, length.out = 1000), lty = 2)
 
 
-## ---- creer data farine-----------------------------------------------------------------------
+## ---- creer data farine---------------------------------------------------
 farine <- data.frame(type = c("T110", "T150", "T45", "T55", "T65", "T80", 
     "mais", "pois chiche", "riz", "sarrasin", "seigle"),
     proteines = c(10.3, 12.2, 9.94, 9.9, 14.9, 10.9, 6.23, 22.4, 8, 11.5, 8.7),
@@ -436,7 +433,7 @@ ggtern(data = farine, mapping = aes(x = proteines, y = lipides, z = glucides)) +
   theme_rgbw()
 
 
-## ---- centrer data farine---------------------------------------------------------------------
+## ---- centrer data farine-------------------------------------------------
 farine_mean <- farine_comp[1, ]
 for (k in 2:nrow(farine_comp)) {
   farine_mean <- farine_mean + farine_comp[k, ]
@@ -444,15 +441,15 @@ for (k in 2:nrow(farine_comp)) {
 farine_mean <- farine_mean / nrow(farine_comp)
 
 
-## ---- moyenne geometrique sur data acomp------------------------------------------------------
+## ---- moyenne geometrique sur data acomp----------------------------------
 mean(farine_comp)
 
 
-## ---- centrer data----------------------------------------------------------------------------
+## ---- centrer data--------------------------------------------------------
 farine_comp_ce <- farine_comp - farine_mean
 
 
-## ---- fonction local pour calculer les coordonnes du ternary diagram--------------------------
+## ---- fonction local pour calculer les coordonnes du ternary diagram------
 compo_to_ternary <- function(s_3, A = c(0, 0), B = c(1, 0), 
                              C = c(0.5, sqrt(3) / 2)) {
   if (length(s_3) == 3)
@@ -506,11 +503,11 @@ g <- compo_to_ternary(farine_mean - farine_mean)
 points(g[, 1], g[, 2], pch = 15, col = "red")
 
 
-## ---- produit scalaire------------------------------------------------------------------------
+## ---- produit scalaire----------------------------------------------------
 scalar(farine_comp[1, ], farine_comp[2, ])
 
 
-## ---- ps en dehors de acomp-------------------------------------------------------------------
+## ---- ps en dehors de acomp-----------------------------------------------
 D <- 3
 ps <- 0
 x <- farine_comp[1, ]
@@ -521,12 +518,12 @@ for (j in 1:(D - 1))
 (ps <- ps / 3)
 
 
-## ---- normaliser------------------------------------------------------------------------------
+## ---- normaliser----------------------------------------------------------
 norm(x)
 norm(y)
 
 
-## ---- normaliser en dehors de acomp-----------------------------------------------------------
+## ---- normaliser en dehors de acomp---------------------------------------
 norm_x <- 0
 norm_y <- 0
 for (j in 1:(D - 1)) {
@@ -539,15 +536,15 @@ norm_x <- sqrt(norm_x / 3)
 norm_y <- sqrt(norm_y / 3)
 
 
-## ---- distance Aitchison----------------------------------------------------------------------
+## ---- distance Aitchison--------------------------------------------------
 dist(farine_comp[1:2, ])
 
 
-## ---- distance Aitchison alternative----------------------------------------------------------
+## ---- distance Aitchison alternative--------------------------------------
 sqrt(scalar(x-y, x-y))
 
 
-## ---- transformation alr ilr clr--------------------------------------------------------------
+## ---- transformation alr ilr clr------------------------------------------
 V <- matrix(c(2 / sqrt(6), - 1 / sqrt(6), - 1 / sqrt(6),
             0, 1/ sqrt(2), - 1 / sqrt(2)), ncol = 2)
 alr_a <- alr(comp_a, ivar = 3)
@@ -558,13 +555,7 @@ ilr_a <- ilr(comp_a, V = V)
 ## ---- cartographie moyenne geometrique, echo = F, fig.width = 7, fig.height = 5, fig.cap = "Cartographie des valeurs de $g(x)$ dans le diagramme ternaire", fig.align="center"----
 seq_compo <- NULL
 pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
-for(i in seq(0.01, 0.99, 0.01)) {
-  for(j in seq(0.01, 0.99, 0.01)) {
-    if(1 - i - j > 0)
-    seq_compo <- rbind(seq_compo,
-                       c(i, j, 1 - i - j))
-  }
-}
+seq_compo <- as.data.frame(seq_simplex(100, zero = F))
 g_x <- (seq_compo[, 1] * seq_compo[, 2] * seq_compo[, 3]) ^ (1 / 3)
 # clr 1
 plot(acomp(c(1/3, 1/3, 1/3)), pch = 16, cex = 1, 
@@ -584,36 +575,36 @@ legend("topleft", legend = decoup, cex = 0.8, title = "g(x)",
        fill = pal1)
 
 
-## ---- somme clr egal zero---------------------------------------------------------------------
+## ---- somme clr egal zero-------------------------------------------------
 all(round(apply(clr_a, 1, sum), 12) == 0)
 
 
-## ---- propriete clr---------------------------------------------------------------------------
+## ---- propriete clr-------------------------------------------------------
 (diag(3) - matrix(1/3, 3, 3)) %*% log(as.numeric(comp_a[1, ]))
 clr_a[1, ]
 
 
-## ---- propriete ilr---------------------------------------------------------------------------
+## ---- propriete ilr-------------------------------------------------------
 ilr(x + y)
 ilr(x) + ilr(y)
 
 
-## ---- propriete ilr 2-------------------------------------------------------------------------
+## ---- propriete ilr 2-----------------------------------------------------
 ilr(2 * x)
 2 * ilr(x)
 
 
-## ---- propriete ilr 3-------------------------------------------------------------------------
+## ---- propriete ilr 3-----------------------------------------------------
 scalar(x, y)
 sum(ilr(x) * ilr(y))
 
 
-## ---- propriete ilr 4-------------------------------------------------------------------------
+## ---- propriete ilr 4-----------------------------------------------------
 norm(x)
 sqrt(sum(ilr(x) * ilr(x)))
 
 
-## ---- propriete ilr 5-------------------------------------------------------------------------
+## ---- propriete ilr 5-----------------------------------------------------
 norm(x-y)
 dist(rbind(
   ilr(x),
@@ -857,33 +848,32 @@ for (i in 1:length(radius)) {
 }
 
 
-## ---- transformations inverses----------------------------------------------------------------
+## ---- transformations inverses--------------------------------------------
 mean_alr <- apply(alr_a, 2, mean)
 mean_ilr <- apply(ilr_a, 2, mean)
 mean_clr <- apply(clr_a, 2, mean) 
 alrInv(mean_alr)
-ilrInv(mean_ilr)
+ilrInv(mean_ilr, V = V)
 clrInv(mean_clr)
 
 
-## ---- variance dans ilr-----------------------------------------------------------------------
+## ---- variance dans ilr---------------------------------------------------
 var(ilr_a)
 
 
-## ---- inverse ilr-----------------------------------------------------------------------------
+## ---- inverse ilr---------------------------------------------------------
 V %*% var(ilr_a) %*% t(V)
 
 
-## ---- fonction var sur acomp------------------------------------------------------------------
+## ---- fonction var sur acomp----------------------------------------------
 var_s <- var(comp_a)
 
 
-## ---- simuler une loi multinomiale------------------------------------------------------------
+## ---- simuler une loi multinomiale----------------------------------------
 my_multi <- t(rmultinom(1000, size = 30, prob = c(1/6, 1/3, 1/2)))
 
 
-## ---- aggreger les valeurs simulees-----------------------------------------------------------
-my_multi <- my_multi[-which(apply(my_multi, 1, function(x) any(x == 0))), ]
+## ---- aggreger les valeurs simulees---------------------------------------
 my_multi_ag <- aggregate(rep(1, nrow(my_multi)), by = list(x1 = my_multi[, 1],
                               x2 = my_multi[, 2],
                               x3 = my_multi[, 3]), FUN = sum)
@@ -893,12 +883,9 @@ my_multi_ag <- aggregate(rep(1, nrow(my_multi)), by = list(x1 = my_multi[, 1],
 pal1 <- RColorBrewer::brewer.pal(9, "YlGn")
 bk <- seq(0, 45, by = 5)
 ind <- findInterval(my_multi_ag$x, bk, all.inside = TRUE)
-plot(acomp(my_multi_ag[, 1:3]), col = pal1[ind], pch = 16)
-plot(acomp(c(1/6, 1/3, 1/2)), pch = 15, cex = 1, col = "red", add = T)
-decoup <- c("<=5", "]5;10]", "]10;15]", "]15;20]", "]20;25]", "]25;30]",
-            "]30;35]", "]35;40]", ">40")
-legend("topleft", legend = decoup, cex = 0.8, title = "Nb points \n(sur 1000)", 
-       fill = pal1)
+
+ggtern(data = my_multi_ag, mapping = aes(x = x1, y = x2, z = x3)) +
+  geom_point(size = 1.5, col = pal1[ind])
 
 
 ## ---- plot de lois normales dans le simplexe, gig.width = 6, fig.height = 6, fig.cap = "Distribution de lois normales dans le simplexe pour différents paramètres de la moyenne (en lignes) et de la matrice de variance-covariance dans l'espace clr (en colonnes)",fig.align="center"----
@@ -960,7 +947,7 @@ par(opar)
 qqnorm(comp_a)
 
 
-## ---- test normalite multivariee--------------------------------------------------------------
+## ---- test normalite multivariee------------------------------------------
 energy::mvnorm.etest(ilr(comp_a), R = 199)
 
 
@@ -976,7 +963,7 @@ plot(x, dDirichlet(my_comp, alpha = c(A = 2, B = 2)), type = "l", ylab = "f(x)",
      main = TeX(r"($\alpha_1=2, alpha_2=2$)"))
 
 
-## ---- estimer parametres dirichlet------------------------------------------------------------
+## ---- estimer parametres dirichlet----------------------------------------
 fit_d <- fitDirichlet(comp_a)
 
 
@@ -1004,7 +991,28 @@ contour(dx, asp = 1, levels = quantile(
 par(opar)
 
 
-## ---- data automobile, message = F------------------------------------------------------------
+## ---- simuler Z-----------------------------------------------------------
+Z <- mvrnorm(n = 100, mu = c(0, 0), 
+        Sigma = matrix(c(2, -1.5, -1.5, 2), 2, 2))
+
+
+## ---- simuler u-----------------------------------------------------------
+u <- rchisq(1, df = 5)
+
+
+## ---- simuler Y-----------------------------------------------------------
+Y <- sqrt(5 / u) * Z
+
+
+## ---- simuler X-----------------------------------------------------------
+X <- ilrInv(Y)
+
+
+## ---- representation de donnees de Student, , fig.width = 5, fig.height = 5, fig.cap = "Données simulées seloin une loi de Student multivariée sur le simplexe",fig.align="center"----
+plot(X)
+
+
+## ---- data automobile, message = F----------------------------------------
 library(codareg)
 data(BDDSegX)
 Y_s <- BDDSegX[, c("S_A", "S_B", "S_C", "S_D", "S_E")]
@@ -1029,11 +1037,11 @@ legend("topleft", legend = c("A", "B", "C", "D", "E"), lty = 1, col = my_col,
 plot(Y_s, margin = "acomp", pch = 3, cex = 0.6)
 
 
-## ---- matrice de variation--------------------------------------------------------------------
+## ---- matrice de variation------------------------------------------------
 var_T <- variation(Y_s)
 
 
-## ---- detail matrice variation----------------------------------------------------------------
+## ---- detail matrice variation--------------------------------------------
 var(log(Y_s[, 1] / Y_s[, 2]))
 
 
@@ -1041,11 +1049,11 @@ var(log(Y_s[, 1] / Y_s[, 2]))
 boxplot(Y_s)
 
 
-## ---- variance totale-------------------------------------------------------------------------
+## ---- variance totale-----------------------------------------------------
 VarTot <- sum(var_T * upper.tri(var_T)) / D_market ^ 2
 
 
-## ---- contributions des clr-------------------------------------------------------------------
+## ---- contributions des clr-----------------------------------------------
 var_j <- diag(var(clr(Y_s)))
 var_j / sum(var_j)
 
@@ -1056,18 +1064,18 @@ hc <- hclust(dd, method = "ward.D")
 plot(hc, xlab = "Méthode de Ward", sub = "")
 
 
-## ---- faire des balances----------------------------------------------------------------------
+## ---- faire des balances--------------------------------------------------
 head(balance(X = Y_s, expr = ~(D/E)/(A/(B/C))))
 
 
-## ---- matrice de signe------------------------------------------------------------------------
+## ---- matrice de signe----------------------------------------------------
 sign_binary <- matrix(c(-1, -1, -1, 1, 1,
          0, 0, 0, 1, -1,
          1, -1, -1, 0, 0,
          0, 1, -1, 0, 0), byrow = T, ncol = 5)
 
 
-## ---- contraste basee sur la matrice de signe-------------------------------------------------
+## ---- contraste basee sur la matrice de signe-----------------------------
 V_binary <- sign_binary
 for (j in 1:nrow(V_binary)) {
   card_J_plus <- length(which(sign_binary[j, ] == 1)) 
@@ -1080,12 +1088,13 @@ for (j in 1:nrow(V_binary)) {
 }
 
 
-## ---- tranformation ilr manuel----------------------------------------------------------------
+## ---- tranformation ilr manuel--------------------------------------------
 V_binary %*% log(as.numeric(Y_s[1, ]))
 
 
-## ---- matrice de distance entre individus-----------------------------------------------------
-dist_market <- dist(Y_s)
+## ---- matrice de distance entre individus---------------------------------
+clr_market <- clr(Y_s)
+dist_market <- dist(clr_market)
 
 
 ## ---- plot des MDS, fig.width = 6, fig.height = 5, fig.cap = "MDS des parts de marché automobiles", fig.align="center"----
@@ -1095,7 +1104,6 @@ y <- mds[, 2]
 plot(x, y, pch = 16, cex = 0.7, xlab = "", ylab = "", main = "",
      xlim = c(-1, 1), ylim = c(-1, 1), asp = 1)
 abline(h = 0, v = 0, lty = 2)
-clr_market <- clr(Y_s)
 for(k in 1:5) {
   coeff_clr <- coefficients(lm(clr_market[, k] ~ x + y -1))
   points(coeff_clr[1], coeff_clr[2], col = "red", pch = 15)
@@ -1111,7 +1119,7 @@ biplot(pca, cex = 0.5)
 abline(h = 0, v = 0, lty = 2)
 
 
-## ---- afficher axe ACP dans ternary diagram, eval = F-----------------------------------------
+## ---- afficher axe ACP dans ternary diagram, eval = F---------------------
 ## axe_1 <- clrInv(loadings(pca)[, 1])
 ## plot(acomp(Y_s), pch = 16, cex = 0.5) # , margin = "acomp")
 ## straight(mean(acomp(Y_s)), axe_1)
@@ -1132,7 +1140,7 @@ PLOT.LRA(LRA(cups, weight = FALSE), main = "LRA non pondéré")
 PLOT.LRA(LRA(cups, weight = TRUE), main = "LRA pondéré")
 
 
-## ---- k-means---------------------------------------------------------------------------------
+## ---- k-means-------------------------------------------------------------
 clust <- kmeans(mds, 3)$cluster %>%
   as.factor()
 
@@ -1167,7 +1175,7 @@ plot(comp_a, col = ifelse(icsOutlier@ics.distances > icsOutlier@ics.dist.cutoff,
                           "red", "grey"))
 
 
-## ---- data chinoises--------------------------------------------------------------------------
+## ---- data chinoises------------------------------------------------------
 data("CHNS11")
 CHNS11 <- CHNS11 %>%
   rename(proteines = VC, lipides = VF, glucides = VP) 
@@ -1185,7 +1193,7 @@ ggtern(data = CHNS11, mapping = aes(x = proteines, y = lipides, z = glucides)) +
   facet_wrap(~ class_Y)
 
 
-## ---- regression X compo----------------------------------------------------------------------
+## ---- regression X compo--------------------------------------------------
 ilr_nutrition <- ilr(X_compo)
 ilr1 <- ilr_nutrition[, 1]
 ilr2 <- ilr_nutrition[, 2]
@@ -1193,7 +1201,7 @@ lm_1 <- lm(BMI ~ ilr1 + ilr2, data = CHNS11)
 summary(lm_1)
 
 
-## ---- coeff regression dans CLR---------------------------------------------------------------
+## ---- coeff regression dans CLR-------------------------------------------
 ilr2clr(coef(lm_1)[-1])
 
 
@@ -1222,11 +1230,11 @@ legend("topleft", legend = decoup, cex = 0.6, title = "Y pred",
 
 
 
-## ---- regression Y compo----------------------------------------------------------------------
+## ---- regression Y compo--------------------------------------------------
 lm_2 <- lm(ilr(Y_s) ~ PIB_Courant_t + TTC_Gazole, data = BDDSegX)
 
 
-## ---- coeff regression dans CLR avec Y compo--------------------------------------------------
+## ---- coeff regression dans CLR avec Y compo------------------------------
 my_coeff <- data.frame(
   segments = c("A", "B", "C", "D", "E"),
   as(t(ilr2clr(coef(lm_2)[-1, ])), "matrix")
@@ -1241,7 +1249,7 @@ ggplot(coeff_df, aes(x = segments, y = estimate)) +
   facet_wrap(~variable, ncol = 5, scales = "free_y")
 
 
-## ---- significativite des variables-----------------------------------------------------------
+## ---- significativite des variables---------------------------------------
 anova(lm_2)
 
 
